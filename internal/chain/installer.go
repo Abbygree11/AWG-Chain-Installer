@@ -46,11 +46,11 @@ func (in *Installer) Run(ctx context.Context, o Options) (result string, retErr 
 	defer exit.Close()
 
 	in.notify(0.14, "Диагностика", "Проверяем входной сервер: Ubuntu, IPv6, правила, порты")
-	entryInfo, err := inspect(ctx, entry, EntryPort, "awg-home.conf", "awg-fin.conf")
+	entryInfo, err := inspect(ctx, entry, EntryPort, "awg-client.conf", "awg-mediator.conf")
 	if err != nil { return "", fmt.Errorf("входной VPS: %w", err) }
 
 	in.notify(0.20, "Диагностика", "Проверяем выходной сервер: Ubuntu, IPv6, правила, порты")
-	exitInfo, err := inspect(ctx, exit, ExitPort, "awg-spb.conf")
+	exitInfo, err := inspect(ctx, exit, ExitPort, "awg-destination.conf")
 	if err != nil { return "", fmt.Errorf("выходной VPS: %w", err) }
 
 	if entryInfo.IPv6 == exitInfo.IPv6 { return "", errors.New("у серверов совпадает публичный IPv6") }
@@ -75,15 +75,15 @@ func (in *Installer) Run(ctx context.Context, o Options) (result string, retErr 
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		var cleanupErrors []string
-		if _, err := entry.Run(cleanupCtx, `systemctl disable --now awg-quick@awg-home 2>/dev/null || true
-systemctl disable --now awg-quick@awg-fin 2>/dev/null || true
-ip -4 rule del priority 1000 iif awg-home lookup 100 2>/dev/null || true
+		if _, err := entry.Run(cleanupCtx, `systemctl disable --now awg-quick@awg-client 2>/dev/null || true
+systemctl disable --now awg-quick@awg-mediator 2>/dev/null || true
+ip -4 rule del priority 1000 iif awg-client lookup 100 2>/dev/null || true
 ip -4 route flush table 100 2>/dev/null || true
-rm -f /etc/amnezia/amneziawg/awg-home.conf /etc/amnezia/amneziawg/awg-home.conf.new /etc/amnezia/amneziawg/awg-fin.conf /etc/amnezia/amneziawg/awg-fin.conf.new`); err != nil {
+rm -f /etc/amnezia/amneziawg/awg-client.conf /etc/amnezia/amneziawg/awg-client.conf.new /etc/amnezia/amneziawg/awg-mediator.conf /etc/amnezia/amneziawg/awg-mediator.conf.new`); err != nil {
 			cleanupErrors = append(cleanupErrors, "входной VPS: "+err.Error())
 		}
-		if _, err := exit.Run(cleanupCtx, `systemctl disable --now awg-quick@awg-spb 2>/dev/null || true
-rm -f /etc/amnezia/amneziawg/awg-spb.conf /etc/amnezia/amneziawg/awg-spb.conf.new`); err != nil {
+		if _, err := exit.Run(cleanupCtx, `systemctl disable --now awg-quick@awg-destination 2>/dev/null || true
+rm -f /etc/amnezia/amneziawg/awg-destination.conf /etc/amnezia/amneziawg/awg-destination.conf.new`); err != nil {
 			cleanupErrors = append(cleanupErrors, "выходной VPS: "+err.Error())
 		}
 		if len(cleanupErrors)>0 { retErr=fmt.Errorf("%w; не удалось полностью откатить: %s",retErr,strings.Join(cleanupErrors,"; ")) }
@@ -100,30 +100,30 @@ test "$(sysctl -n net.ipv4.ip_forward)" = 1`, 40*time.Second)
 	staged = true
 	in.notify(0.62, "Настройка VPN", "Записываем защищённые конфигурации AWG")
 	// Files are saved with 0600 mode; only the application's own fixed paths are used.
-	if err := exit.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-spb.conf", ExitConfig(k, entryInfo.IPv6, exitInfo.Egress)); err != nil {
+	if err := exit.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-destination.conf", ExitConfig(k, entryInfo.IPv6, exitInfo.Egress)); err != nil {
 		return "", err
 	}
-	if err := entry.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-fin.conf", EntryHopConfig(k, exitInfo.IPv6)); err != nil {
+	if err := entry.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-mediator.conf", EntryHopConfig(k, exitInfo.IPv6)); err != nil {
 		return "", err
 	}
-	if err := entry.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-home.conf", EntryHomeConfig(k)); err != nil {
+	if err := entry.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-client.conf", EntryHomeConfig(k)); err != nil {
 		return "", err
 	}
 
 	in.notify(0.71, "Запуск туннелей", "Запускаем выходной AWG на Финляндии")
-	if _, err := runWithTimeout(ctx, exit, "systemctl enable --now awg-quick@awg-spb\nsystemctl is-active --quiet awg-quick@awg-spb", 60*time.Second); err != nil {
+	if _, err := runWithTimeout(ctx, exit, "systemctl enable --now awg-quick@awg-destination\nsystemctl is-active --quiet awg-quick@awg-destination", 60*time.Second); err != nil {
 		return "", fmt.Errorf("запуск выходного AWG: %w", err)
 	}
 
 	in.notify(0.76, "Запуск туннелей", "Подключаем входной VPS к выходному через IPv6")
-	if _, err := runWithTimeout(ctx, entry, "systemctl enable --now awg-quick@awg-fin\nsystemctl is-active --quiet awg-quick@awg-fin", 60*time.Second); err != nil {
+	if _, err := runWithTimeout(ctx, entry, "systemctl enable --now awg-quick@awg-mediator\nsystemctl is-active --quiet awg-quick@awg-mediator", 60*time.Second); err != nil {
 		return "", fmt.Errorf("запуск AWG между VPS: %w", err)
 	}
 
 	in.notify(0.82, "Проверка связи", "Проверяем туннель, handshake и внешний IPv4")
 	verify := `ping -c 3 -W 3 10.77.77.2 >/dev/null
 ip -4 route get 1.1.1.1 | grep -q 'dev ` + entryInfo.Egress + `'
-curl -4 -fsS --retry 2 --connect-timeout 8 --max-time 25 --interface 'if!awg-fin' https://api.ipify.org`
+curl -4 -fsS --retry 2 --connect-timeout 8 --max-time 25 --interface 'if!awg-mediator' https://api.ipify.org`
 	got, err := runWithTimeout(ctx, entry, verify, 65*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("проверка соединения между VPS: %w. Возможна блокировка UDP %d у провайдера", err, ExitPort)
@@ -133,14 +133,14 @@ curl -4 -fsS --retry 2 --connect-timeout 8 --max-time 25 --interface 'if!awg-fin
 	}
 
 	in.notify(0.89, "Настройка маршрутизации", "Активируем входной AWG, PBR, NAT и kill switch")
-	if _, err := runWithTimeout(ctx, entry, `systemctl enable --now awg-quick@awg-home
-systemctl is-active --quiet awg-quick@awg-home
-ip -4 route get 1.1.1.1 from 10.86.66.2 iif awg-home | grep -q 'dev awg-fin'
+	if _, err := runWithTimeout(ctx, entry, `systemctl enable --now awg-quick@awg-client
+systemctl is-active --quiet awg-quick@awg-client
+ip -4 route get 1.1.1.1 from 10.86.66.2 iif awg-client | grep -q 'dev awg-mediator'
 ip -4 route show table 100 | grep -q 'unreachable default'
-iptables -C FORWARD -i awg-home ! -o awg-fin -j REJECT`, 60*time.Second); err != nil {
+iptables -C FORWARD -i awg-client ! -o awg-mediator -j REJECT`, 60*time.Second); err != nil {
 		return "", fmt.Errorf("PBR или firewall: %w", err)
 	}
-	if _, err := runWithTimeout(ctx, exit, "ip -4 route get 10.86.66.2 | grep -q 'dev awg-spb'\niptables -t nat -C POSTROUTING -s 10.86.66.0/24 -o "+exitInfo.Egress+" -j MASQUERADE", 30*time.Second); err != nil {
+	if _, err := runWithTimeout(ctx, exit, "ip -4 route get 10.86.66.2 | grep -q 'dev awg-destination'\niptables -t nat -C POSTROUTING -s 10.86.66.0/24 -o "+exitInfo.Egress+" -j MASQUERADE", 30*time.Second); err != nil {
 		return "", fmt.Errorf("обратный маршрут или NAT: %w", err)
 	}
 
