@@ -28,7 +28,7 @@ flowchart LR
 
 ## Сборка из исходников
 
-Нужен Go 1.25+, компилятор C и зависимости Fyne (OpenGL/GLFW). На Windows сборка требует MinGW-w64. Для Ubuntu нужны xorg-dev и libgl1-mesa-dev.
+Нужен Go 1.26+, компилятор C и зависимости Fyne (OpenGL/GLFW). На Windows сборка требует MinGW-w64. Для Ubuntu нужны xorg-dev, libgl1-mesa-dev, libwayland-dev, wayland-protocols и libxkbcommon-dev.
 
 ```bash
 go mod tidy
