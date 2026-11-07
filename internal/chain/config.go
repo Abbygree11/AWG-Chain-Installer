@@ -128,16 +128,19 @@ func NewClientKeys(k *Keys) error {
 
 func generateMagic() ([4]uint32, error) {
 	var m [4]uint32
-	for i := 0; i < 4; i++ {
-		var b [4]byte
-		if _, err := rand.Read(b[:]); err != nil { return m, err }
-		// Positive, unique header values; avoid reserved zero and small literals.
-		v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
-		v = (v & 0x7fffffff) + 1000
-		for j := 0; j < i; j++ {
-			if m[j] == v { i--; break }
+	used := make(map[uint32]bool, 4)
+	for i := range m {
+		for {
+			var b [4]byte
+			if _, err := rand.Read(b[:]); err != nil { return m, err }
+			v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+			// Small, positive and non-overlapping H1..H4 values.
+			v = v%1000000000 + 1000
+			if used[v] { continue }
+			used[v] = true
+			m[i] = v
+			break
 		}
-		if m[i] == 0 { m[i] = v }
 	}
 	return m, nil
 }
