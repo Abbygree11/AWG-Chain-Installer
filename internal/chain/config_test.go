@@ -28,7 +28,7 @@ func TestConfigsContainMatchingTunnelParameters(t *testing.T) {
 	}
 	if !strings.Contains(hop,"Table = off") || !strings.Contains(hop,"[2001:db8::2]:51820") { t.Fatal("IPv6 route policy lost") }
 	if !strings.Contains(exit,"AllowedIPs = 10.77.77.1/32, 10.86.66.0/24") { t.Fatal("return route missing") }
-	if !strings.Contains(home,"lookup 100") || !strings.Contains(home,"! -o awg-fin") { t.Fatal("kill switch missing") }
+	if !strings.Contains(home,"lookup 100") || !strings.Contains(home,"! -o awg-mediator") { t.Fatal("kill switch missing") }
 	if !strings.Contains(client,"AllowedIPs = 0.0.0.0/0") { t.Fatal("client AllowedIPs missing") }
 	if strings.Contains(client,k.EntryHomePrivate) { t.Fatal("server private key leaked into client config") }
 }
