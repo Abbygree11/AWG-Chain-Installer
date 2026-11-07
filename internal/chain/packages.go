@@ -42,7 +42,7 @@ if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | g
         ipv6) options=(-o Acquire::ForceIPv6=true) ;;
         ipv4) options=(-o Acquire::ForceIPv4=true) ;;
       esac
-      if apt-get \${options[@]} -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o APT::Update::Error-Mode=any update -qq > "$log" 2>&1 &&
+      if apt-get ${options[@]} -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o APT::Update::Error-Mode=any update -qq > "$log" 2>&1 &&
          apt-cache policy amneziawg-dkms | grep -Eq 'Candidate: [0-9]' &&
          apt-cache policy amneziawg-tools | grep -Eq 'Candidate: [0-9]'; then
         ready=true
@@ -52,7 +52,7 @@ if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | g
     done
   done
   if test "$ready" != true; then fail "PPA недоступен: проверены HTTPS/IPv6/IPv4 и резервный подписанный HTTP"; fi
-  apt-get \${options[@]} -o Acquire::Retries=2 install -y -qq amneziawg-dkms amneziawg-tools > "$log" 2>&1 || fail "не удалось установить пакеты AmneziaWG"
+  apt-get ${options[@]} -o Acquire::Retries=2 install -y -qq amneziawg-dkms amneziawg-tools > "$log" 2>&1 || fail "не удалось установить пакеты AmneziaWG"
 fi
 modprobe amneziawg > "$log" 2>&1 || fail "не удалось загрузить модуль ядра через modprobe"
 awg --version | grep -q 'v3\.1\.' || fail "утилиты awg не соответствуют версии 3.1"
