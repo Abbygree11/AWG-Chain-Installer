@@ -178,6 +178,16 @@ start)
     iptables -I DOCKER-USER 1 -i "$network" -s "$src" ! -o awg-mediator -j REJECT
   iptables -C DOCKER-USER -i "$network" -s "$src" -p udp --sport "$port" -j RETURN 2>/dev/null ||
     iptables -I DOCKER-USER 1 -i "$network" -s "$src" -p udp --sport "$port" -j RETURN
+  # Docker often switches FORWARD policy to DROP. Preserve only the two known
+  # VPN forwarding paths rather than globally reopening FORWARD.
+  iptables -C DOCKER-USER -i "$network" -s "$src" -o awg-mediator -j ACCEPT 2>/dev/null ||
+    iptables -I DOCKER-USER 1 -i "$network" -s "$src" -o awg-mediator -j ACCEPT
+  iptables -C DOCKER-USER -i awg-mediator -o "$network" -d "$src" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null ||
+    iptables -I DOCKER-USER 1 -i awg-mediator -o "$network" -d "$src" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  iptables -C DOCKER-USER -i awg-client -o awg-mediator -j ACCEPT 2>/dev/null ||
+    iptables -I DOCKER-USER 1 -i awg-client -o awg-mediator -j ACCEPT
+  iptables -C DOCKER-USER -i awg-mediator -o awg-client -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null ||
+    iptables -I DOCKER-USER 1 -i awg-mediator -o awg-client -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   ;;
 stop)
   iptables -t mangle -D PREROUTING -i "$network" -s "$src" -j "$chain" 2>/dev/null || true
@@ -186,6 +196,10 @@ stop)
   ip -4 rule del priority 1100 fwmark "$mark"/0xffffffff lookup 100 2>/dev/null || true
   iptables -D DOCKER-USER -i "$network" -s "$src" -p udp --sport "$port" -j RETURN 2>/dev/null || true
   iptables -D DOCKER-USER -i "$network" -s "$src" ! -o awg-mediator -j REJECT 2>/dev/null || true
+  iptables -D DOCKER-USER -i "$network" -s "$src" -o awg-mediator -j ACCEPT 2>/dev/null || true
+  iptables -D DOCKER-USER -i awg-mediator -o "$network" -d "$src" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+  iptables -D DOCKER-USER -i awg-client -o awg-mediator -j ACCEPT 2>/dev/null || true
+  iptables -D DOCKER-USER -i awg-mediator -o awg-client -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
   ;;
 *) echo "expected start or stop" >&2; exit 2 ;;
 esac
