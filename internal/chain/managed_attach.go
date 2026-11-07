@@ -78,7 +78,7 @@ chmod 700 start.sh
 echo "Собираем официальный AmneziaWG Docker-образ..."
 docker build --pull -t amnezia-awg2 .
 echo "Запускаем управляемый контейнер..."
-docker run -d --log-driver none --restart always --privileged \
+docker run -d --log-driver json-file --log-opt max-size=5m --log-opt max-file=2 --restart always --privileged \
   --cap-add NET_ADMIN --cap-add SYS_MODULE -v /lib/modules:/lib/modules \
   --sysctl net.ipv4.conf.all.src_valid_mark=1 \
   --network awg-chain-managed --ip 172.28.66.2 \
@@ -101,10 +101,10 @@ h1=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
 h2=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
 h3=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
 h4=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
-h1=$((h1 % 1000000000 + 1000))
-h2=$((h2 % 1000000000 + 1000001000))
-h3=$((h3 % 1000000000 + 2000001000))
-h4=$((h4 % 1000000000 + 3000001000))
+h1=$((h1 % 200000000 + 1000))
+h2=$((h2 % 200000000 + 200001000))
+h3=$((h3 % 200000000 + 400001000))
+h4=$((h4 % 200000000 + 600001000))
 printf '%s\n' "$private" > wireguard_server_private_key.key
 printf '%s\n' "$public" > wireguard_server_public_key.key
 printf '%s\n' "$psk" > wireguard_psk.key
@@ -143,7 +143,7 @@ for _ in $(seq 1 30); do
   if docker exec amnezia-awg2 awg show awg0 >/dev/null 2>&1; then ready=true; break; fi
   sleep 2
 done
-test "$ready" = true || { echo "AmneziaWG awg0 не запустился. Проверь docker exec amnezia-awg2 cat /opt/amnezia/awg/awg0.conf (не публикуй ключи)"; exit 1; }
+test "$ready" = true || { echo "AmneziaWG awg0 не запустился. Диагностика: docker logs --tail 40 amnezia-awg2"; exit 1; }
 docker exec amnezia-awg2 test -s /opt/amnezia/awg/wireguard_server_public_key.key
 docker exec amnezia-awg2 test -s /opt/amnezia/awg/wireguard_psk.key
 echo "MANAGED_AWG_READY"`
