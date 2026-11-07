@@ -1,0 +1,22 @@
+name: Check managed CLI (no GUI)
+on:
+  push:
+    branches: [experiment/managed-cli]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Unit tests (no Fyne)
+        run: go test -mod=mod ./internal/chain/...
+      - name: Build managed CLI only
+        run: go build -mod=mod -o /tmp/awg-managed-test ./cmd/awg-managed-test
