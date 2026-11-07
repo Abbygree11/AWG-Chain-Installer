@@ -101,6 +101,17 @@ type Keys struct {
 	HopMagic         [4]uint32
 }
 
+func NewAllKeys(k *Keys) error {
+	var err error
+	k.EntryHomePrivate, k.EntryHomePublic, err = GeneratePrivatePublic()
+	if err != nil { return err }
+	k.EntryHopPrivate, k.EntryHopPublic, err = GeneratePrivatePublic()
+	if err != nil { return err }
+	k.ExitPrivate, k.ExitPublic, err = GeneratePrivatePublic()
+	if err != nil { return err }
+	return NewClientKeys(k)
+}
+
 func NewClientKeys(k *Keys) error {
 	var err error
 	k.ClientPrivate, k.ClientPublic, err = GeneratePrivatePublic()
@@ -199,8 +210,8 @@ PersistentKeepalive = 25
 `, HopEntry, k.EntryHopPrivate, obfuscation(k.HopHeader, k.HopMagic), k.ExitPublic, exitIPv6, ExitPort)
 }
 
-func ExitConfig(k Keys, entryIPv6 string) string {
-	return fmt.Sprintf(`[Interface]
+func ExitConfig(k Keys, entryIPv6, egressIF string) string {
+	config := fmt.Sprintf(`[Interface]
 Address = %s/30
 ListenPort = %d
 PrivateKey = %s
@@ -226,6 +237,7 @@ AllowedIPs = %s/32, %s
 		ExitPort, ExitPort, ExitPort, entryIPv6, ExitPort, entryIPv6,
 		HopEntry, HomeNetwork, ExitPort, ExitPort, entryIPv6,
 		k.EntryHopPublic, HopEntry, HomeNetwork)
+	return strings.ReplaceAll(config, "enp0s3", egressIF)
 }
 
 func KeeneticConfig(k Keys, entryIPv4 string) string {
