@@ -4,6 +4,12 @@ package chain
 const nativeAWGInstallScript = `
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
+proxy_url="${AWG_CHAIN_HTTP_PROXY:-}"
+proxy_options=()
+if test -n "$proxy_url"; then
+  # Per-host proxy settings leave Ubuntu mirrors on their original route.
+  proxy_options=(-o "Acquire::https::Proxy::ppa.launchpadcontent.net=$proxy_url" -o "Acquire::http::Proxy::ppa.launchpad.net=$proxy_url")
+fi
 log=$(mktemp /tmp/awg-chain-apt.XXXXXXXX)
 keyfile=$(mktemp /tmp/awg-chain-key.XXXXXXXX)
 trap 'rm -f "$log" "$keyfile"' EXIT
@@ -12,8 +18,10 @@ fail() {
   grep -Ei '(^E:|^Err:|^W:|error:|failed|could not|timeout|unable|dkms)' "$log" | tail -n 10 >&2 || true
   exit 1
 }
-apt-get -o Acquire::Retries=2 update -qq > "$log" 2>&1 || fail "не удалось обновить Ubuntu APT"
-apt-get -o Acquire::Retries=2 install -y -qq ca-certificates curl gnupg dkms build-essential iptables iproute2 iputils-ping "linux-headers-$(uname -r)" > "$log" 2>&1 || fail "не удалось установить зависимости"
+if test -z "$proxy_url"; then
+  apt-get -o Acquire::Retries=2 update -qq > "$log" 2>&1 || fail "не удалось обновить Ubuntu APT"
+  apt-get -o Acquire::Retries=2 install -y -qq ca-certificates curl gnupg dkms build-essential iptables iproute2 iputils-ping "linux-headers-$(uname -r)" > "$log" 2>&1 || fail "не удалось установить зависимости"
+fi
 if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | grep -q '^3\.1\.'; then
   install -d -m 755 /etc/apt/keyrings
   keyring=/etc/apt/keyrings/awg-chain-amnezia.gpg
@@ -21,9 +29,13 @@ if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | g
   if test ! -e "$keyring"; then
     key_url="https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$fingerprint"
     ok=false
-    for family in -6 -4; do
-      if curl "$family" -fsSL --retry 1 --connect-timeout 7 --max-time 20 "$key_url" -o "$keyfile" 2> "$log"; then ok=true; break; fi
-    done
+    if test -n "$proxy_url"; then
+      if curl --proxy "$proxy_url" -fsSL --retry 2 --connect-timeout 12 --max-time 60 "$key_url" -o "$keyfile" 2> "$log"; then ok=true; fi
+    else
+      for family in -6 -4; do
+        if curl "$family" -fsSL --retry 1 --connect-timeout 7 --max-time 20 "$key_url" -o "$keyfile" 2> "$log"; then ok=true; break; fi
+      done
+    fi
     if test "$ok" != true; then fail "ключ подписи PPA недоступен по IPv6 и IPv4"; fi
     actual=$(gpg --batch --show-keys --with-colons "$keyfile" 2> "$log" | awk -F: '$1=="fpr" {print $10; exit}')
     if test "$actual" != "$fingerprint"; then fail "полный отпечаток GPG-ключа не совпадает"; fi
@@ -42,7 +54,8 @@ if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | g
         ipv6) options=(-o Acquire::ForceIPv6=true) ;;
         ipv4) options=(-o Acquire::ForceIPv4=true) ;;
       esac
-      if apt-get "${options[@]}" -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o APT::Update::Error-Mode=any update -qq > "$log" 2>&1 &&
+      if test -n "$proxy_url" && test "$family" != auto; then continue; fi
+      if apt-get "${options[@]}" "${proxy_options[@]}" -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o APT::Update::Error-Mode=any update -qq > "$log" 2>&1 &&
          apt-cache policy amneziawg-dkms | grep -Eq 'Candidate: [0-9]' &&
          apt-cache policy amneziawg-tools | grep -Eq 'Candidate: [0-9]'; then
         ready=true
@@ -52,7 +65,7 @@ if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | g
     done
   done
   if test "$ready" != true; then fail "PPA недоступен: проверены HTTPS/IPv6/IPv4 и резервный подписанный HTTP"; fi
-  apt-get "${options[@]}" -o Acquire::Retries=2 install -y -qq amneziawg-dkms amneziawg-tools > "$log" 2>&1 || fail "не удалось установить пакеты AmneziaWG"
+  apt-get "${options[@]}" "${proxy_options[@]}" -o Acquire::Retries=2 install -y -qq amneziawg-dkms amneziawg-tools > "$log" 2>&1 || fail "не удалось установить пакеты AmneziaWG"
 fi
 modprobe amneziawg > "$log" 2>&1 || fail "не удалось загрузить модуль ядра через modprobe"
 awg --version | grep -q 'v3\.1\.' || fail "утилиты awg не соответствуют версии 3.1"
