@@ -59,11 +59,11 @@ func (in *Installer) Run(ctx context.Context, o Options) (result string, retErr 
 		return "", fmt.Errorf("нет IPv6-маршрута до выходного VPS: %w", err)
 	}
 
-	in.notify(0.29, "Установка AmneziaWG", "Устанавливаем подписанные пакеты на выходной VPS")
-	if err := installPackages(ctx, exit, func() { in.notify(0.32, "Резервный способ", "Выходной VPS не видит Launchpad: получаем подписанные пакеты через компьютер по SSH") }); err != nil { return "", fmt.Errorf("выходной VPS: %w", err) }
+	in.notify(0.29, "Установка AmneziaWG", "Собираем AmneziaWG 3.1 на выходном VPS из официальных исходников GitHub")
+	if err := installGithubPackages(ctx, exit); err != nil { return "", fmt.Errorf("выходной VPS: %w", err) }
 
-	in.notify(0.43, "Установка AmneziaWG", "Устанавливаем подписанные пакеты на входной VPS")
-	if err := installPackages(ctx, entry, func() { in.notify(0.46, "Резервный способ", "Входной VPS не видит Launchpad: получаем подписанные пакеты через компьютер по SSH") }); err != nil { return "", fmt.Errorf("входной VPS: %w", err) }
+	in.notify(0.43, "Установка AmneziaWG", "Собираем AmneziaWG 3.1 на входном VPS из официальных исходников GitHub")
+	if err := installGithubPackages(ctx, entry); err != nil { return "", fmt.Errorf("входной VPS: %w", err) }
 
 	// From here on, a failed run should remove only the profiles created by
 	// this installer. Package installation and sysctl changes are intentionally
