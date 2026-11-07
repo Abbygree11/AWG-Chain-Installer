@@ -316,23 +316,21 @@ func main() {
 	))
 
 	contents := container.NewStack(mainInstall)
-	var navButtons []*widget.Button
+	var navButtons []*navAction
 	setPage := func(page fyne.CanvasObject, current int) {
 		contents.Objects = []fyne.CanvasObject{page}
 		contents.Refresh()
 		for i, btn := range navButtons {
-			if i==current {btn.Importance=widget.HighImportance}else{btn.Importance=widget.LowImportance}
-			btn.Refresh()
+			btn.SetSelected(i==current)
 		}
 	}
 
-	installButton := widget.NewButtonWithIcon("Установка",theme.SettingsIcon(),func(){setPage(mainInstall,0)})
-	logsButton := widget.NewButtonWithIcon("Логи",theme.DocumentIcon(),func(){setPage(logsPage,1)})
-	settingsButton := widget.NewButtonWithIcon("Настройки",theme.SettingsIcon(),func(){setPage(settingsPage,2)})
-	aboutButton := widget.NewButtonWithIcon("О программе",theme.InfoIcon(),func(){setPage(aboutPage,3)})
-	navButtons = []*widget.Button{installButton,logsButton,settingsButton,aboutButton}
-	installButton.Importance=widget.HighImportance
-	for _,btn := range navButtons {btn.Alignment=widget.ButtonAlignLeading}
+	installButton := newNavAction("Установка",theme.SettingsIcon(),func(){setPage(mainInstall,0)})
+	logsButton := newNavAction("Логи",theme.DocumentIcon(),func(){setPage(logsPage,1)})
+	settingsButton := newNavAction("Настройки",theme.SettingsIcon(),func(){setPage(settingsPage,2)})
+	aboutButton := newNavAction("О программе",theme.InfoIcon(),func(){setPage(aboutPage,3)})
+	navButtons = []*navAction{installButton,logsButton,settingsButton,aboutButton}
+	installButton.SetSelected(true)
 
 	navTop := container.NewVBox(
 		container.NewCenter(imageIcon("brand-logo",logoSVG,80)),
