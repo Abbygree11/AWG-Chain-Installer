@@ -16,7 +16,7 @@ func TestConfigsContainMatchingTunnelParameters(t *testing.T) {
 
 	home := EntryHomeConfig(k)
 	hop := EntryHopConfig(k, "2001:db8::2")
-	exit := ExitConfig(k, "2001:db8::1")
+	exit := ExitConfig(k, "2001:db8::1", "enp0s3")
 	client := KeeneticConfig(k,"203.0.113.10")
 
 	for _, pair := range [][2]string{{home,client},{hop,exit}} {
