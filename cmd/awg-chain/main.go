@@ -245,7 +245,7 @@ func main() {
 		widget.NewSeparator(),
 		stepRow("1", "Подключится к обоим VPS по SSH"),
 		stepRow("2", "Проверит систему, IPv6 и порты"),
-		stepRow("3", "Установит AmneziaWG 3.1"),
+		stepRow("3", "Установит AmneziaWG 3.1 из GitHub"),
 		stepRow("4", "Настроит два VPN-туннеля"),
 		stepRow("5", "Создаст PBR, NAT и kill switch"),
 		stepRow("6", "Применит ограничения firewall"),
@@ -297,6 +297,7 @@ func main() {
 			widget.NewSeparator(),
 			txt("Папка результата", 18, snow, true),
 			container.NewBorder(nil,nil,nil,widget.NewButtonWithIcon("Выбрать папку",theme.FolderIcon(),func(){browse.OnTapped()}),settingsOutput),
+			txt("AmneziaWG 3.1.20260812 • официальные исходники GitHub", 14, secondary, false),
 			txt("Порты AWG: UDP 51821 (вход), UDP 51820 (выход)", 14, secondary, false),
 			txt("Подсети: 10.86.66.0/24 и 10.77.77.0/30", 14, secondary, false),
 			txt("Установщик не изменяет SSH-аутентификацию и не перезаписывает уже существующие VPN-профили.", 14, secondary, false),
@@ -306,7 +307,7 @@ func main() {
 	aboutPage := container.NewVScroll(pad(32,40,32,40,
 		standardCard(
 			container.NewHBox(imageIcon("about-logo",logoSVG,72),
-				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.1.0 • Go + Fyne",15,secondary,false))),
+				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.1.1 • Go + Fyne",15,secondary,false))),
 			widget.NewSeparator(),
 			txt("Автоматическая настройка двухузлового AmneziaWG 3.1",19,snow,true),
 			txt("Keenetic → входной VPS по IPv4 → выходной VPS по IPv6 → интернет",14,secondary,false),
@@ -347,7 +348,7 @@ func main() {
 		settingsButton,
 		aboutButton,
 	)
-	bottom := container.NewVBox(txt("v0.1.0",13,secondary,false))
+	bottom := container.NewVBox(txt("v0.1.1",13,secondary,false))
 	navContent := pad(25,12,20,12,container.NewBorder(nil,bottom,nil,nil,navTop))
 	sidebar := container.NewStack(sidebarBackground(),navContent)
 	sidebarFixed := container.New(fixedColumn{width:250},sidebar)
