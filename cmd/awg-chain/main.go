@@ -315,6 +315,7 @@ func main() {
 		),
 	))
 
+	managedPage := makeManagedPage(w)
 	contents := container.NewStack(mainInstall)
 	var navButtons []*navAction
 	setPage := func(page fyne.CanvasObject, current int) {
@@ -326,10 +327,11 @@ func main() {
 	}
 
 	installButton := newNavAction("Установка",theme.SettingsIcon(),func(){setPage(mainInstall,0)})
-	logsButton := newNavAction("Логи",theme.DocumentIcon(),func(){setPage(logsPage,1)})
-	settingsButton := newNavAction("Настройки",theme.SettingsIcon(),func(){setPage(settingsPage,2)})
-	aboutButton := newNavAction("О программе",theme.InfoIcon(),func(){setPage(aboutPage,3)})
-	navButtons = []*navAction{installButton,logsButton,settingsButton,aboutButton}
+	managedButton := newNavAction("Amnezia VPN",theme.SearchIcon(),func(){setPage(managedPage,1)})
+	logsButton := newNavAction("Логи",theme.DocumentIcon(),func(){setPage(logsPage,2)})
+	settingsButton := newNavAction("Настройки",theme.SettingsIcon(),func(){setPage(settingsPage,3)})
+	aboutButton := newNavAction("О программе",theme.InfoIcon(),func(){setPage(aboutPage,4)})
+	navButtons = []*navAction{installButton,managedButton,logsButton,settingsButton,aboutButton}
 	installButton.SetSelected(true)
 
 	navTop := container.NewVBox(
@@ -340,6 +342,7 @@ func main() {
 		container.NewCenter(txt("на AmneziaWG 3.1",13,secondary,false)),
 		widget.NewSeparator(),
 		installButton,
+		managedButton,
 		logsButton,
 		settingsButton,
 		aboutButton,
