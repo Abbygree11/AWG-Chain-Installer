@@ -182,11 +182,11 @@ MTU = 1200
 %s
 
 PostUp = ip -4 route replace unreachable default table 100 metric 10000
-PostUp = ip -4 rule show | grep -Eq '^1000:.*iif awg-home.*lookup 100' || ip -4 rule add priority 1000 iif awg-home lookup 100
-PostUp = iptables -w -C FORWARD -i awg-home ! -o awg-fin -j REJECT 2>/dev/null || iptables -w -I FORWARD 1 -i awg-home ! -o awg-fin -j REJECT
+PostUp = ip -4 rule show | grep -Eq '^1000:.*iif awg-client.*lookup 100' || ip -4 rule add priority 1000 iif awg-client lookup 100
+PostUp = iptables -w -C FORWARD -i awg-client ! -o awg-mediator -j REJECT 2>/dev/null || iptables -w -I FORWARD 1 -i awg-client ! -o awg-mediator -j REJECT
 PostUp = ip6tables -w -C INPUT -p udp --dport %d -j DROP 2>/dev/null || ip6tables -w -I INPUT 1 -p udp --dport %d -j DROP
-PostDown = ip -4 rule del priority 1000 iif awg-home lookup 100 2>/dev/null || true
-PostDown = iptables -w -D FORWARD -i awg-home ! -o awg-fin -j REJECT 2>/dev/null || true
+PostDown = ip -4 rule del priority 1000 iif awg-client lookup 100 2>/dev/null || true
+PostDown = iptables -w -D FORWARD -i awg-client ! -o awg-mediator -j REJECT 2>/dev/null || true
 PostDown = ip6tables -w -D INPUT -p udp --dport %d -j DROP 2>/dev/null || true
 
 [Peer]
@@ -203,7 +203,7 @@ MTU = 1200
 Table = off
 %s
 
-PostUp = ip -4 route replace default dev awg-fin table 100 metric 100
+PostUp = ip -4 route replace default dev awg-mediator table 100 metric 100
 
 [Peer]
 PublicKey = %s
@@ -221,12 +221,12 @@ PrivateKey = %s
 MTU = 1200
 %s
 
-PostUp = iptables -w -C FORWARD -i awg-spb -o enp0s3 -j ACCEPT 2>/dev/null || iptables -w -I FORWARD 1 -i awg-spb -o enp0s3 -j ACCEPT
+PostUp = iptables -w -C FORWARD -i awg-destination -o enp0s3 -j ACCEPT 2>/dev/null || iptables -w -I FORWARD 1 -i awg-destination -o enp0s3 -j ACCEPT
 PostUp = iptables -t nat -C POSTROUTING -s %s/32 -o enp0s3 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s %s/32 -o enp0s3 -j MASQUERADE
 PostUp = iptables -t nat -C POSTROUTING -s %s -o enp0s3 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s %s -o enp0s3 -j MASQUERADE
 PostUp = iptables -w -C INPUT -p udp --dport %d -j DROP 2>/dev/null || iptables -w -I INPUT 1 -p udp --dport %d -j DROP
 PostUp = ip6tables -w -C INPUT -p udp --dport %d ! -s %s/128 -j DROP 2>/dev/null || ip6tables -w -I INPUT 1 -p udp --dport %d ! -s %s/128 -j DROP
-PostDown = iptables -w -D FORWARD -i awg-spb -o enp0s3 -j ACCEPT 2>/dev/null || true
+PostDown = iptables -w -D FORWARD -i awg-destination -o enp0s3 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -t nat -D POSTROUTING -s %s/32 -o enp0s3 -j MASQUERADE 2>/dev/null || true
 PostDown = iptables -t nat -D POSTROUTING -s %s -o enp0s3 -j MASQUERADE 2>/dev/null || true
 PostDown = iptables -w -D INPUT -p udp --dport %d -j DROP 2>/dev/null || true
