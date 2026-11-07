@@ -29,7 +29,7 @@ func (in *Installer) notify(progress float64, title, detail string) {
 	if in.Progress != nil { in.Progress(progress, title, detail) }
 }
 
-func (in *Installer) Run(ctx context.Context, o Options) (string, error) {
+func (in *Installer) Run(ctx context.Context, o Options) (result string, retErr error) {
 	if err := o.Validate(); err != nil { return "", err }
 	var k Keys
 	if err := NewAllKeys(&k); err != nil { return "", err }
@@ -65,6 +65,30 @@ func (in *Installer) Run(ctx context.Context, o Options) (string, error) {
 	in.notify(0.43, "Установка AmneziaWG", "Устанавливаем подписанные пакеты на входной VPS")
 	if err := installPackages(ctx, entry); err != nil { return "", fmt.Errorf("входной VPS: %w", err) }
 
+	// From here on, a failed run should remove only the profiles created by
+	// this installer. Package installation and sysctl changes are intentionally
+	// retained, and an interrupted process may require manual recovery.
+	staged := false
+	defer func() {
+		if retErr == nil || !staged { return }
+		in.notify(0, "Откат", "Останавливаем созданные VPN и убираем их конфигурации")
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		var cleanupErrors []string
+		if _, err := entry.Run(cleanupCtx, `systemctl disable --now awg-quick@awg-home 2>/dev/null || true
+systemctl disable --now awg-quick@awg-fin 2>/dev/null || true
+ip -4 rule del priority 1000 iif awg-home lookup 100 2>/dev/null || true
+ip -4 route flush table 100 2>/dev/null || true
+rm -f /etc/amnezia/amneziawg/awg-home.conf /etc/amnezia/amneziawg/awg-home.conf.new /etc/amnezia/amneziawg/awg-fin.conf /etc/amnezia/amneziawg/awg-fin.conf.new`); err != nil {
+			cleanupErrors = append(cleanupErrors, "входной VPS: "+err.Error())
+		}
+		if _, err := exit.Run(cleanupCtx, `systemctl disable --now awg-quick@awg-spb 2>/dev/null || true
+rm -f /etc/amnezia/amneziawg/awg-spb.conf /etc/amnezia/amneziawg/awg-spb.conf.new`); err != nil {
+			cleanupErrors = append(cleanupErrors, "выходной VPS: "+err.Error())
+		}
+		if len(cleanupErrors)>0 { retErr=fmt.Errorf("%w; не удалось полностью откатить: %s",retErr,strings.Join(cleanupErrors,"; ")) }
+	}()
+
 	in.notify(0.57, "Настройка сети", "Включаем IPv4-маршрутизацию на обоих серверах")
 	for _, r := range []*Remote{exit, entry} {
 		_, err := runWithTimeout(ctx, r, `printf 'net.ipv4.ip_forward = 1\n' > /etc/sysctl.d/90-awg-chain-forwarding.conf
@@ -73,6 +97,7 @@ test "$(sysctl -n net.ipv4.ip_forward)" = 1`, 40*time.Second)
 		if err != nil { return "", fmt.Errorf("включение IP forwarding: %w", err) }
 	}
 
+	staged = true
 	in.notify(0.62, "Настройка VPN", "Записываем защищённые конфигурации AWG")
 	// Files are saved with 0600 mode; only the application's own fixed paths are used.
 	if err := exit.PutPrivateFile(ctx, "/etc/amnezia/amneziawg/awg-spb.conf", ExitConfig(k, entryInfo.IPv6, exitInfo.Egress)); err != nil {
