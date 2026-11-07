@@ -51,16 +51,21 @@ func main() {
 
 	output := widget.NewLabel(defaultFolder())
 	output.Wrapping = fyne.TextWrapBreak
+	settingsOutput := widget.NewLabel(defaultFolder())
+	settingsOutput.Wrapping = fyne.TextWrapBreak
 	browse := widget.NewButtonWithIcon("Выбрать папку", theme.FolderIcon(), func() {
 		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil { dialog.ShowError(err, w); return }
-			if uri != nil { output.SetText(uri.Path()) }
+			if uri != nil { output.SetText(uri.Path()); settingsOutput.SetText(uri.Path()) }
 		}, w).Show()
 	})
 
 	status := txt("Готов к установке", 15, secondary, true)
+	logStatus := txt("Готов к установке", 15, secondary, true)
 	progress := widget.NewProgressBar()
 	progress.SetValue(0)
+	logProgress := widget.NewProgressBar()
+	logProgress.SetValue(0)
 	detail := widget.NewLabel("Введите данные VPS и запустите установку.")
 	detail.Wrapping = fyne.TextWrapWord
 
@@ -134,6 +139,10 @@ func main() {
 				logLabel.SetText("")
 				lastLog.SetText("Начинаем подключение…")
 				progress.SetValue(0)
+				logProgress.SetValue(0)
+				logStatus.Text = "Установка выполняется"
+				logStatus.Color = purple
+				logStatus.Refresh()
 				status.Text = "Установка выполняется"
 				status.Color = purple
 				status.Refresh()
@@ -155,6 +164,7 @@ func main() {
 						Progress: func(p float64, title, step string) {
 							fyne.Do(func() {
 								progress.SetValue(p)
+								logProgress.SetValue(p)
 								detail.SetText(step)
 								addLog(title, step)
 							})
@@ -167,6 +177,9 @@ func main() {
 						exitPass.SetText("")
 						if err != nil {
 							status.Text = "Установка остановлена"
+							logStatus.Text = status.Text
+							logStatus.Color = color.NRGBA{R: 255, G: 151, B: 155, A: 255}
+							logStatus.Refresh()
 							status.Color = color.NRGBA{R: 255, G: 151, B: 155, A: 255}
 							status.Refresh()
 							resultState.Text = "Требуется проверка"
@@ -178,6 +191,9 @@ func main() {
 							return
 						}
 						status.Text = "VPN-цепочка настроена"
+						logStatus.Text = status.Text
+						logStatus.Color = mint
+						logStatus.Refresh()
 						status.Color = mint
 						status.Refresh()
 						resultState.Text = "Настройка завершена"
@@ -265,8 +281,8 @@ func main() {
 			txt("Журнал установки", 28, snow, true),
 			txt("События установки без сохранения SSH-паролей и приватных ключей", 14, secondary, false),
 			widget.NewSeparator(),
-			status,
-			progress,
+			logStatus,
+			logProgress,
 			logScroll,
 			widget.NewButtonWithIcon("Скопировать журнал", theme.ContentCopyIcon(), func() {
 				w.Clipboard().SetContent(strings.Join(events,"\n"))
@@ -281,7 +297,7 @@ func main() {
 			txt("Первый релиз оптимизирован под чистые Ubuntu 24.04 LTS с ядром Linux 6.8", 15, secondary, false),
 			widget.NewSeparator(),
 			txt("Папка результата", 18, snow, true),
-			container.NewBorder(nil,nil,nil,widget.NewButtonWithIcon("Выбрать папку",theme.FolderIcon(),func(){browse.OnTapped()}),output),
+			container.NewBorder(nil,nil,nil,widget.NewButtonWithIcon("Выбрать папку",theme.FolderIcon(),func(){browse.OnTapped()}),settingsOutput),
 			txt("Порты AWG: UDP 51821 (вход), UDP 51820 (выход)", 14, secondary, false),
 			txt("Подсети: 10.86.66.0/24 и 10.77.77.0/30", 14, secondary, false),
 			txt("Установщик не изменяет SSH-аутентификацию и не перезаписывает уже существующие VPN-профили.", 14, secondary, false),
