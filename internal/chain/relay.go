@@ -1,7 +1,6 @@
 package chain
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -178,11 +177,3 @@ func (p *packageRelay) Close() error {
 	return p.listener.Close()
 }
 
-// Called by apt over the tunnel, never exposed as an open Internet proxy.
-// Once the installation ends, the SSH reverse-forward socket is removed.
-func relayContext(ctx context.Context, p *packageRelay) {
-	go func() {
-		<-ctx.Done()
-		_ = p.Close()
-	}()
-}
