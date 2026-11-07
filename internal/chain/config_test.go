@@ -8,8 +8,10 @@ import (
 
 func TestConfigsContainMatchingTunnelParameters(t *testing.T) {
 	k := Keys{}
-	for _, field := range []*string{&k.EntryHomePrivate,&k.EntryHomePublic,&k.EntryHopPrivate,&k.EntryHopPublic,&k.ExitPrivate,&k.ExitPublic} {
-		*field = base64.StdEncoding.EncodeToString(make([]byte,32))
+	for i, field := range []*string{&k.EntryHomePrivate,&k.EntryHomePublic,&k.EntryHopPrivate,&k.EntryHopPublic,&k.ExitPrivate,&k.ExitPublic} {
+		data := make([]byte, 32)
+		data[0] = byte(i + 1)
+		*field = base64.StdEncoding.EncodeToString(data)
 	}
 	if err := NewClientKeys(&k); err != nil { t.Fatal(err) }
 	if err := k.Validate(); err != nil { t.Fatal(err) }
