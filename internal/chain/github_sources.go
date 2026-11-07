@@ -1,5 +1,10 @@
 package chain
 
+import (
+	"context"
+	"time"
+)
+
 // Temporary experiment: build the pinned upstream 3.1 sources directly from GitHub
 // when PPA access is unavailable. Source archives use TLS and immutable commit IDs;
 // unlike the signed APT path, this is NOT GPG-signed package installation.
@@ -110,3 +115,9 @@ systemctl cat awg-quick@.service >/dev/null 2>&1 ||
   fail "systemd не распознал сервис awg-quick@.service"
 status "AmneziaWG 3.1.20260812 установлен из официальных исходников GitHub"
 `
+
+// installGithubPackages is the only package path used by the temporary Go runner.
+func installGithubPackages(ctx context.Context, remote *Remote) error {
+	_, err := runWithTimeout(ctx, remote, nativeAWGGithubScript, 35*time.Minute)
+	return err
+}
