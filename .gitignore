@@ -1,0 +1,11 @@
+dist/
+output/
+*.conf
+*.exe
+*.app/
+*.log
+*.test
+coverage.out
+.idea/
+.vscode/
+.DS_Store
