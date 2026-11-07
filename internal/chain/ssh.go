@@ -75,7 +75,7 @@ func hostKeyCallback(ask AskHostKey) (ssh.HostKeyCallback, error) {
 		}
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil { return err }
-		_, err = fmt.Fprintln(f, knownhosts.Line([]string{hostname}, key))
+		_, err = fmt.Fprintln(f, knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key))
 		closeErr := f.Close()
 		if err != nil { return err }
 		return closeErr
