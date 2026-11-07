@@ -203,37 +203,7 @@ printf 'IPv6=%%s\nEGRESS=%%s\n' "$v6" "$egress"
 }
 
 func installPackages(ctx context.Context, r *Remote) error {
-	const script = `
-export DEBIAN_FRONTEND=noninteractive
-export NEEDRESTART_MODE=a
-apt-get -o Acquire::Retries=3 update -qq
-apt-get -o Acquire::Retries=3 install -y -qq ca-certificates curl gnupg dkms build-essential iptables iproute2 iputils-ping linux-headers-$(uname -r)
-if ! command -v awg >/dev/null || ! modinfo -F version amneziawg 2>/dev/null | grep -q '^3\.1\.'; then
-    install -d -m 755 /etc/apt/keyrings
-    url='https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x75C9DD72C799870E310542E24166F2C257290828'
-    if ! curl -4 -fLsS --retry 3 --connect-timeout 10 --max-time 45 "$url" -o /tmp/awg-chain-ppa.asc; then
-        curl -fLsS --retry 3 --connect-timeout 10 --max-time 45 "$url" -o /tmp/awg-chain-ppa.asc
-    fi
-    fpr=$(gpg --batch --show-keys --with-colons /tmp/awg-chain-ppa.asc | awk -F: '$1=="fpr" {print $10; exit}')
-    test "$fpr" = "75C9DD72C799870E310542E24166F2C257290828" || { echo "Неверный отпечаток PPA Amnezia"; exit 1; }
-    gpg --batch --yes --dearmor -o /etc/apt/keyrings/awg-chain-amnezia.gpg /tmp/awg-chain-ppa.asc
-    chmod 644 /etc/apt/keyrings/awg-chain-amnezia.gpg
-    cat > /etc/apt/sources.list.d/awg-chain-amnezia.sources <<'EOF'
-Types: deb
-URIs: https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu/
-Suites: noble
-Components: main
-Signed-By: /etc/apt/keyrings/awg-chain-amnezia.gpg
-EOF
-    apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 update -qq
-    apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 install -y -qq amneziawg-dkms amneziawg-tools
-    rm -f /tmp/awg-chain-ppa.asc
-fi
-modprobe amneziawg
-awg --version | grep -q 'v3\.1\.'
-modinfo -F version amneziawg | grep -q '^3\.1\.'
-`
-	_, err := runWithTimeout(ctx, r, script, 14*time.Minute)
+	_, err := runWithTimeout(ctx, r, nativeAWGInstallScript, 20*time.Minute)
 	return err
 }
 
