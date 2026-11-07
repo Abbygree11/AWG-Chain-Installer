@@ -60,10 +60,10 @@ func (in *Installer) Run(ctx context.Context, o Options) (result string, retErr 
 	}
 
 	in.notify(0.29, "Установка AmneziaWG", "Устанавливаем подписанные пакеты на выходной VPS")
-	if err := installPackages(ctx, exit); err != nil { return "", fmt.Errorf("выходной VPS: %w", err) }
+	if err := installPackages(ctx, exit, func() { in.notify(0.32, "Резервный способ", "Выходной VPS не видит Launchpad: получаем подписанные пакеты через компьютер по SSH") }); err != nil { return "", fmt.Errorf("выходной VPS: %w", err) }
 
 	in.notify(0.43, "Установка AmneziaWG", "Устанавливаем подписанные пакеты на входной VPS")
-	if err := installPackages(ctx, entry); err != nil { return "", fmt.Errorf("входной VPS: %w", err) }
+	if err := installPackages(ctx, entry, func() { in.notify(0.46, "Резервный способ", "Входной VPS не видит Launchpad: получаем подписанные пакеты через компьютер по SSH") }); err != nil { return "", fmt.Errorf("входной VPS: %w", err) }
 
 	// From here on, a failed run should remove only the profiles created by
 	// this installer. Package installation and sysctl changes are intentionally
@@ -202,9 +202,37 @@ printf 'IPv6=%%s\nEGRESS=%%s\n' "$v6" "$egress"
 	return info, nil
 }
 
-func installPackages(ctx context.Context, r *Remote) error {
+func isPPADownloadFailure(err error) bool {
+	if err == nil { return false }
+	s := err.Error()
+	return strings.Contains(s, "PPA недоступен:") ||
+		strings.Contains(s, "ключ подписи PPA недоступен")
+}
+
+// First use the server's own APT access. If Launchpad is unreachable,
+// create an SSH reverse HTTP proxy bound to the VPS loopback only, so the
+// installed GUI can fetch signed Ubuntu PPA packages with its own network.
+// No changes to SSH or the VPN's network routing are needed.
+func installPackages(ctx context.Context, r *Remote, onRelay func()) error {
 	_, err := runWithTimeout(ctx, r, nativeAWGInstallScript, 20*time.Minute)
-	return err
+	if err == nil { return nil }
+	if !isPPADownloadFailure(err) { return err }
+	if ctx.Err()!=nil { return ctx.Err() }
+	if onRelay != nil { onRelay() }
+
+	relay, proxyURL, relayErr := newPackageRelay(r)
+	if relayErr != nil {
+		return fmt.Errorf("Launchpad недоступен на VPS; резервная передача через SSH не поддерживается этим сервером: %w", relayErr)
+	}
+	defer relay.Close()
+
+	_, relayErr = runWithTimeout(ctx, r,
+		"export AWG_CHAIN_HTTP_PROXY="+proxyURL+"\n"+nativeAWGInstallScript,
+		20*time.Minute)
+	if relayErr != nil {
+		return fmt.Errorf("установка подписанных пакетов через интернет-соединение компьютера тоже не удалась: %w", relayErr)
+	}
+	return nil
 }
 
 func saveClientConfig(dir, profile, data string) (string,error) {
