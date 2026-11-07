@@ -202,7 +202,14 @@ func buttonGradient() fyne.CanvasObject {
 			r:=174-(58*p)+shine
 			g:=111-(72*p)+shine
 			b:=251-(27*p)+shine/2
-			img.SetNRGBA(x,y,color.NRGBA{uint8(r),uint8(g),uint8(b),255})
+			// Rounded alpha mask preserves the pill-shaped violet button corners.
+			rad:=14.0
+			edgeX:=math.Max(rad,math.Min(float64(x),float64(W)-1-rad))
+			edgeY:=math.Max(rad,math.Min(float64(y),float64(H)-1-rad))
+			distance:=math.Hypot(float64(x)-edgeX,float64(y)-edgeY)
+			alpha:=uint8(255)
+			if distance>rad { alpha=0 }
+			img.SetNRGBA(x,y,color.NRGBA{uint8(r),uint8(g),uint8(b),alpha})
 		}
 	}
 	out:=canvas.NewImageFromImage(img)
@@ -295,3 +302,54 @@ func serverCard(title, subtitle string, host, port, user, password *widget.Entry
 func statusCard(body ...fyne.CanvasObject) fyne.CanvasObject {
 	return roundedPanel(color.NRGBA{R:21,G:47,B:45,A:255},color.NRGBA{R:56,G:178,B:124,A:255},18,container.NewVBox(body...))
 }
+
+
+// Custom navigation surfaces match the selected lavender pill from the visual
+// reference instead of using the platform's generic rectangular buttons.
+type navAction struct {
+	widget.BaseWidget
+	Title string
+	Icon fyne.Resource
+	OnTapped func()
+	selected bool
+	back *canvas.Rectangle
+	label *canvas.Text
+}
+
+func newNavAction(title string, icon fyne.Resource, fn func()) *navAction {
+	n:=&navAction{Title:title,Icon:icon,OnTapped:fn}
+	n.ExtendBaseWidget(n)
+	return n
+}
+
+func (n *navAction) MinSize() fyne.Size { return fyne.NewSize(190,51) }
+
+func (n *navAction) CreateRenderer() fyne.WidgetRenderer {
+	n.back=canvas.NewRectangle(color.Transparent)
+	n.back.CornerRadius=12
+	n.back.StrokeWidth=1.1
+	n.label=txt(n.Title,16,secondary,false)
+	icon:=widget.NewIcon(n.Icon)
+	row:=container.NewHBox(icon,n.label)
+	content:=container.NewStack(n.back,pad(11,8,10,17,row))
+	n.ApplyStyle()
+	return widget.NewSimpleRenderer(content)
+}
+func (n *navAction) ApplyStyle() {
+	if n.back==nil || n.label==nil {return}
+	if n.selected {
+		n.back.FillColor=color.NRGBA{R:79,G:48,B:145,A:255}
+		n.back.StrokeColor=purple
+		n.label.Color=snow
+		n.label.TextStyle=fyne.TextStyle{Bold:true}
+	} else {
+		n.back.FillColor=color.Transparent
+		n.back.StrokeColor=color.Transparent
+		n.label.Color=secondary
+		n.label.TextStyle=fyne.TextStyle{}
+	}
+	n.back.Refresh()
+	n.label.Refresh()
+}
+func (n *navAction) SetSelected(selected bool) {n.selected=selected;n.ApplyStyle()}
+func (n *navAction) Tapped(*fyne.PointEvent) { if n.OnTapped!=nil {n.OnTapped()} }
