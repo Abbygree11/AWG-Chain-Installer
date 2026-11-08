@@ -57,6 +57,7 @@ func run() error {
 	entry := flag.String("entry", "45.88.177.100", "IPv4 входного VPS")
 	entryPort := flag.Int("entry-port", 22, "SSH-порт входного VPS")
 	full := flag.Bool("full", false, "сначала установить обе чистые VPS обычным AWG Chain, затем добавить Amnezia-managed")
+	repair := flag.Bool("repair-replies", false, "починить ответы UDP на уже установленном amnezia-awg2 без переустановки")
 	exit := flag.String("exit", "", "IPv4 выходного VPS, обязательно с -full")
 	exitPort := flag.Int("exit-port", 22, "SSH-порт выходного VPS")
 	flag.Parse()
@@ -68,6 +69,7 @@ func run() error {
 	if *entryPort < 1 || *entryPort > 65535 {
 		return errors.New("неверный SSH-порт входного VPS")
 	}
+	if *full && *repair { return errors.New("режимы -full и -repair-replies несовместимы") }
 	if *full {
 		exitIP, e := netip.ParseAddr(*exit)
 		if e != nil || !exitIP.Is4() || !exitIP.IsGlobalUnicast() || *exit == *entry {
@@ -80,12 +82,15 @@ func run() error {
 
 	fmt.Println("AWG Chain / Amnezia-managed CLI (ЭКСПЕРИМЕНТ)")
 	fmt.Println("Вход:", *entry)
-	if *full {
+	if *repair {
+		fmt.Println("Режим repair: поправим только исходящие UDP-ответы существующего amnezia-awg2")
+	} else if *full {
 		fmt.Println("Полная установка с нуля: два VPS, затем managed Docker")
 	} else {
 		fmt.Println("Режим attach: существующие awg-mediator и awg-destination должны работать")
 	}
 	fmt.Println("Проверяется и изменяется сеть VPS. Действующий awg-client не удаляется.")
+	if *repair { fmt.Println("Ключи, peers и существующая конфигурация AWG не изменяются.") }
 	fmt.Print("Продолжить? Введи install: ")
 	var confirm string
 	if _, err := fmt.Scanln(&confirm); err != nil {
@@ -137,6 +142,11 @@ func run() error {
 		return err
 	}
 	defer remote.Close()
+	if *repair {
+		if err := (chain.ManagedAttacher{Progress: progress}).RepairReplies(ctx, remote); err != nil { return err }
+		fmt.Println("\nПравило ответного UDP-маршрута установлено без перезапуска контейнера. Проверь подключение клиентов.")
+		return nil
+	}
 	fmt.Println("\n=== Добавляем официальный управляемый AmneziaWG 3.1 ===")
 	started := time.Now()
 	attacher := chain.ManagedAttacher{Progress: progress}
