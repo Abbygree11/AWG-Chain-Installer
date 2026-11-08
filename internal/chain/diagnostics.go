@@ -24,8 +24,9 @@ type Component struct {
 }
 
 type ServerInventory struct {
-	Kind       InstallationKind
-	Components []Component
+	Kind          InstallationKind
+	Components    []Component
+	RoutingStatus string // read-only diagnostics, never contains secrets
 }
 
 var nativeInterfaces = []string{
@@ -100,14 +101,53 @@ fi`
 	defer cancel()
 	output,err:=remote.Run(taskCtx,script)
 	if err!=nil {return ServerInventory{},fmt.Errorf("не удалось проверить VPN-компоненты: %w",err)}
-	return ParseInventory(output)
+	inv, err := ParseInventory(output)
+	if err != nil { return ServerInventory{}, err }
+	if inv.Kind == KindManaged || inv.Kind == KindMixed {
+		// Extra read-only checks; changes to Docker network topology after an
+		// official Amnezia upgrade should be visible to the user. Never
+		// assume an existing managed container belongs to AWG Chain.
+		check := `if ! docker inspect amnezia-awg2 >/dev/null 2>&1; then exit 0; fi
+if docker inspect -f '{{range .NetworkSettings.Networks}}{{println .NetworkID}}{{end}}' amnezia-awg2 2>/dev/null |
+  grep -Fq "$(docker network inspect -f '{{.Id}}' awg-chain-managed 2>/dev/null)"; then
+  echo 'Docker-сеть awg-chain-managed: подключена'
+else
+  echo 'Docker-сеть awg-chain-managed: не обнаружена — требуется проверка после обновления'
+fi
+if docker exec amnezia-awg2 ip -4 rule show 2>/dev/null | grep -Eq '^90:.*sport 55424.*lookup 101' &&
+   docker exec amnezia-awg2 ip -4 route show table 101 2>/dev/null | grep -q 'via 172.29.172.1'; then
+  echo 'Ответные UDP-пакеты: таблица 101 настроена'
+else
+  echo 'Ответные UDP-пакеты: таблица 101 не подтверждена'
+fi
+if ip -4 route show table 100 | grep -q 'dev awg-mediator' &&
+   ip -4 rule show | grep -q 'fwmark 0x6601 lookup 100' &&
+   systemctl is-active --quiet awg-chain-managed-route.service; then
+  echo 'Финская цепочка: PBR и service активны'
+else
+  echo 'Финская цепочка: маршрутизация не подтверждена'
+fi`
+		out, err := runWithTimeout(ctx, remote, check, 20*time.Second)
+		if err == nil { inv.RoutingStatus = strings.TrimSpace(out) }
+		if err != nil { inv.RoutingStatus = "Проверка таблиц маршрутизации недоступна: "+err.Error() }
+	}
+	return inv, nil
 }
 
 func (i ServerInventory) Summary() string {
 	switch i.Kind {
 	case KindManaged: return "Найдены компоненты Amnezia VPN (Docker). Можно проверить их через официальное приложение."
 	case KindStandalone: return "Найден нативный AWG. Он не управляется официальным приложением Amnezia VPN."
-	case KindMixed: return "Найдены нативный AWG и контейнеры Amnezia. Не изменяй конфигурацию до проверки портов, правил и маршрутов."
+	case KindMixed:
+		hasHop, hasDocker := false, false
+		for _, component := range i.Components {
+			if component.Name == "awg-mediator" && component.Running { hasHop = true }
+			if component.Name == "amnezia-awg2" && component.Running { hasDocker = true }
+		}
+		if hasHop && hasDocker {
+			return "Найдена штатная двухсерверная схема AWG Chain: Amnezia-managed Docker + нативный awg-mediator."
+		}
+		return "Найдены и нативный AWG, и контейнеры Amnezia. Проверь маршрутизацию и принадлежность сервисов."
 	default: return "Не найдены известные компоненты. Это не гарантирует, что сервер чистый."
 	}
 }
