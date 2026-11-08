@@ -68,9 +68,9 @@ func main() {
 	mainHeader := container.NewHBox(
 		imageIcon("chain-header", linkSVG, 76),
 		container.NewVBox(
-			txt("Настройка AWG Chain", 31, snow, true),
-			txt("Автоматическая установка двухузлового VPN", 15, secondary, false),
-			txt("Входной сервер → выходной сервер • AmneziaWG 3.1", 14, secondary, false),
+			txt("AWG Chain · Amnezia-managed", 31, snow, true),
+			txt("Двухузловой VPN с управлением пользователями в Amnezia VPN", 15, secondary, false),
+			txt("Docker AWG 3.1 → awg-mediator / IPv6 → awg-destination", 14, secondary, false),
 		),
 	)
 
@@ -99,7 +99,7 @@ func main() {
 		if err := opt.ValidateServers(); err != nil { dialog.ShowError(err, w); return }
 
 		dialog.NewConfirm("Начать настройку VPN?",
-			"Установщик изменит VPN, маршруты и firewall на обоих VPS. Нужны чистые Ubuntu 24.04 LTS с ядром 6.8. SSH-настройки не меняются. Продолжить?",
+			"На двух ЧИСТЫХ Ubuntu 24.04 установятся официальный Docker AmneziaWG и межсерверный AWG. Настроятся маршруты и firewall. Существующие установки не перезаписываются. SSH не изменяется. Продолжить?",
 			func(ok bool) {
 				if !ok { return }
 				start.SetBusy(true)
@@ -167,9 +167,9 @@ func main() {
 						resultState.Text = "Настройка завершена"
 						resultState.Color = mint
 						resultState.Refresh()
-						resultNote.SetText("Готовый конфигурационный файл:\n"+file+"\n\nИмпортируй его в Keenetic и выбери нужную политику маршрутизации.")
-						addLog("Готово", "Файл сохранён: "+file)
-						dialog.ShowInformation("Установка завершена", "Туннель между VPS проверен. Файл для Keenetic:\n"+file, w)
+						resultNote.SetText(fmt.Sprintf("Входной VPS: %s:%d/UDP\nВыходной IP: %s\n\nAmnezia VPN: Self-hosted → Пропустить установку → Управление → Проверить установленные сервисы. После обнаружения amnezia-awg2 создавай пользователей и экспортируй конфиги для Keenetic.", result.EntryIP, result.Port, result.ExitIP))
+						addLog("Готово", "amnezia-awg2 на "+result.EntryIP+"; внешний IP: "+result.ExitIP)
+						dialog.ShowInformation("Установка завершена", "Двухсерверная цепочка и Docker проверены. В Amnezia VPN открой сервер "+result.EntryIP+" по SSH и обнаружь установленный сервис amnezia-awg2.", w)
 					})
 				}()
 			}, w).Show()
@@ -177,7 +177,7 @@ func main() {
 
 	setupLeft := container.NewVScroll(pad(23,0,25,23,container.NewVBox(
 		mainHeader,
-		serverCard("Входной сервер", "Принимает подключение от Keenetic", entryIP, entryPort, entryUser, entryPass),
+		serverCard("Входной сервер", "Принимает подключения через официальную Amnezia VPN", entryIP, entryPort, entryUser, entryPass),
 		serverCard("Выходной сервер", "Выпускает трафик в интернет", exitIP, exitPort, exitUser, exitPass),
 		start,
 		txt("Пароли используются только для SSH и не сохраняются программой.", 12, secondary, false),
@@ -198,7 +198,7 @@ func main() {
 		20,
 		container.NewVBox(
 			container.NewGridWithColumns(5,
-				routeNode(routerSVG, "router-path", "Keenetic"),
+				routeNode(routerSVG, "router-path", "Amnezia VPN / Keenetic"),
 				container.NewCenter(imageIcon("arrow-one", arrowSVG, 30)),
 				routeNode(serverSVG, "entry-path", "Входной\nсервер"),
 				container.NewCenter(imageIcon("arrow-two", arrowSVG, 30)),
@@ -213,12 +213,12 @@ func main() {
 		widget.NewSeparator(),
 		stepRow("1", "Подключится к обоим VPS по SSH"),
 		stepRow("2", "Проверит систему, IPv6 и порты"),
-		stepRow("3", "Установит AmneziaWG 3.1 из GitHub"),
-		stepRow("4", "Настроит два VPN-туннеля"),
-		stepRow("5", "Создаст PBR, NAT и kill switch"),
-		stepRow("6", "Применит ограничения firewall"),
-		stepRow("7", "Проверит соединение и автозапуск"),
-		stepRow("8", "Сохранит файл для Keenetic"),
+		stepRow("3", "Установит нативный AWG для межсерверной связи"),
+		stepRow("4", "Поднимет управляемый контейнер amnezia-awg2"),
+		stepRow("5", "Настроит Docker, PBR, NAT и kill switch"),
+		stepRow("6", "Исправит UDP-ответы для любых клиентов"),
+		stepRow("7", "Проверит финский IP и автозапуск"),
+		stepRow("8", "Подготовит управление через Amnezia VPN"),
 	)
 
 	resultCard := statusCard(
@@ -275,11 +275,11 @@ func main() {
 	aboutPage := container.NewVScroll(pad(32,40,32,40,
 		standardCard(
 			container.NewHBox(imageIcon("about-logo",logoSVG,72),
-				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.1.1 • Go + Fyne",15,secondary,false))),
+				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.2.0 • Go + Fyne",15,secondary,false))),
 			widget.NewSeparator(),
 			txt("Автоматическая настройка двухузлового AmneziaWG 3.1",19,snow,true),
-			txt("Keenetic → входной VPS по IPv4 → выходной VPS по IPv6 → интернет",14,secondary,false),
-			txt("Встроенные проверки SSH-ключей, PBR, NAT, kill switch и сохранение файла .conf для Keenetic.",14,secondary,false),
+			txt("Amnezia VPN / Keenetic → Docker на входном VPS → AWG/IPv6 → выходной VPS",14,secondary,false),
+			txt("Встроенные проверки SSH, PBR, NAT, kill switch и Amnezia-managed контейнера.",14,secondary,false),
 			txt("Проект не связан с разработчиками Amnezia или Keenetic.",13,secondary,false),
 		),
 	))
@@ -316,7 +316,7 @@ func main() {
 		settingsButton,
 		aboutButton,
 	)
-	bottom := container.NewVBox(txt("v0.1.1",13,secondary,false))
+	bottom := container.NewVBox(txt("v0.2.0",13,secondary,false))
 	navContent := pad(25,12,20,12,container.NewBorder(nil,bottom,nil,nil,navTop))
 	sidebar := container.NewStack(sidebarBackground(),navContent)
 	sidebarFixed := container.New(fixedColumn{width:250},sidebar)
