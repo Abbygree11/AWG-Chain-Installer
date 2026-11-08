@@ -108,8 +108,9 @@ fi`
 		// official Amnezia upgrade should be visible to the user. Never
 		// assume an existing managed container belongs to AWG Chain.
 		check := `if ! docker inspect amnezia-awg2 >/dev/null 2>&1; then exit 0; fi
-if docker inspect -f '{{range .NetworkSettings.Networks}}{{println .NetworkID}}{{end}}' amnezia-awg2 2>/dev/null |
-  grep -Fq "$(docker network inspect -f '{{.Id}}' awg-chain-managed 2>/dev/null)"; then
+if docker network inspect awg-chain-managed >/dev/null 2>&1 &&
+   docker inspect -f '{{range .NetworkSettings.Networks}}{{println .NetworkID}}{{end}}' amnezia-awg2 2>/dev/null |
+   grep -Fq "$(docker network inspect -f '{{.Id}}' awg-chain-managed 2>/dev/null)"; then
   echo 'Docker-сеть awg-chain-managed: подключена'
 else
   echo 'Docker-сеть awg-chain-managed: не обнаружена — требуется проверка после обновления'
