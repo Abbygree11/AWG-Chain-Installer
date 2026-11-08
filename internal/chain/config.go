@@ -40,6 +40,19 @@ type Options struct {
 var safeUser = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
 func (o Options) Validate() error {
+	if err := o.ValidateServers(); err != nil { return err }
+	if strings.TrimSpace(o.OutputDir) == "" {
+		return errors.New("выбери папку для сохранения")
+	}
+	if strings.TrimSpace(o.Profile) == "" {
+		return errors.New("укажи название подключения")
+	}
+	return nil
+}
+
+// ValidateServers checks the two SSH endpoints without requiring a local
+// Keenetic .conf filename. Managed installations are configured in Amnezia.
+func (o Options) ValidateServers() error {
 	if o.Entry.Host == o.Exit.Host {
 		return errors.New("адреса VPS должны отличаться")
 	}
@@ -60,12 +73,6 @@ func (o Options) Validate() error {
 		if s.Password == "" {
 			return fmt.Errorf("не указан SSH-пароль сервера %s", s.Host)
 		}
-	}
-	if strings.TrimSpace(o.OutputDir) == "" {
-		return errors.New("выбери папку для сохранения")
-	}
-	if strings.TrimSpace(o.Profile) == "" {
-		return errors.New("укажи название подключения")
 	}
 	return nil
 }
@@ -214,6 +221,17 @@ PersistentKeepalive = 25
 }
 
 func ExitConfig(k Keys, entryIPv6, egressIF string) string {
+	return exitConfigWithNetwork(k, entryIPv6, egressIF, HomeNetwork)
+}
+
+// Managed clients are NATed by Docker before reaching the host. The
+// exit server must accept and NAT the Docker egress address, not a
+// legacy single-device VPN subnet.
+func ManagedExitConfig(k Keys, entryIPv6, egressIF string) string {
+	return exitConfigWithNetwork(k, entryIPv6, egressIF, "172.28.66.2/32")
+}
+
+func exitConfigWithNetwork(k Keys, entryIPv6, egressIF, clientNetwork string) string {
 	config := fmt.Sprintf(`[Interface]
 Address = %s/30
 ListenPort = %d
@@ -236,10 +254,10 @@ PostDown = ip6tables -w -D INPUT -p udp --dport %d ! -s %s/128 -j DROP 2>/dev/nu
 PublicKey = %s
 AllowedIPs = %s/32, %s
 `, HopExit, ExitPort, k.ExitPrivate, obfuscation(k.HopHeader, k.HopMagic),
-		HopEntry, HopEntry, HomeNetwork, HomeNetwork,
+		HopEntry, HopEntry, clientNetwork, clientNetwork,
 		ExitPort, ExitPort, ExitPort, entryIPv6, ExitPort, entryIPv6,
-		HopEntry, HomeNetwork, ExitPort, ExitPort, entryIPv6,
-		k.EntryHopPublic, HopEntry, HomeNetwork)
+		HopEntry, clientNetwork, ExitPort, ExitPort, entryIPv6,
+		k.EntryHopPublic, HopEntry, clientNetwork)
 	return strings.ReplaceAll(config, "enp0s3", egressIF)
 }
 
