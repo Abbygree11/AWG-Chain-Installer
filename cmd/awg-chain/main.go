@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image/color"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,12 +16,6 @@ import (
 
 	"github.com/Abbygree11/AWG-Chain-Installer/internal/chain"
 )
-
-func defaultFolder() string {
-	home, err := os.UserHomeDir()
-	if err != nil { return "." }
-	return filepath.Join(home, "Downloads", "AWG-Chain")
-}
 
 func main() {
 	a := app.NewWithID("org.awgchain.installer")
@@ -45,20 +37,6 @@ func main() {
 	entryPass, exitPass := widget.NewPasswordEntry(), widget.NewPasswordEntry()
 	entryPass.SetPlaceHolder("SSH-пароль")
 	exitPass.SetPlaceHolder("SSH-пароль")
-	profile := widget.NewEntry()
-	profile.SetText("AWG-Finland")
-
-	output := widget.NewLabel(defaultFolder())
-	output.Wrapping = fyne.TextWrapBreak
-	settingsOutput := widget.NewLabel(defaultFolder())
-	settingsOutput.Wrapping = fyne.TextWrapBreak
-	browse := widget.NewButtonWithIcon("Выбрать папку", theme.FolderIcon(), func() {
-		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
-			if err != nil { dialog.ShowError(err, w); return }
-			if uri != nil { output.SetText(uri.Path()); settingsOutput.SetText(uri.Path()) }
-		}, w).Show()
-	})
-
 	status := txt("Готов к установке", 15, secondary, true)
 	logStatus := txt("Готов к установке", 15, secondary, true)
 	progress := widget.NewProgressBar()
@@ -75,7 +53,7 @@ func main() {
 	logScroll := container.NewVScroll(logLabel)
 	logScroll.SetMinSize(fyne.NewSize(450, 460))
 
-	resultNote := widget.NewLabel("После успешной установки здесь появится путь к файлу для Keenetic.")
+	resultNote := widget.NewLabel("После установки сервер появится в Amnezia VPN через поиск установленных сервисов.")
 	resultNote.Wrapping = fyne.TextWrapWord
 	resultNote.TextStyle = fyne.TextStyle{}
 	resultState := txt("После установки", 14, secondary, true)
@@ -94,13 +72,6 @@ func main() {
 			txt("Автоматическая установка двухузлового VPN", 15, secondary, false),
 			txt("Входной сервер → выходной сервер • AmneziaWG 3.1", 14, secondary, false),
 		),
-	)
-
-	fileCard := standardCard(
-		txt("Название подключения", 16, snow, true),
-		labelledEntry("Имя профиля для файла Keenetic", profile),
-		txt("Куда сохранить готовый файл", 16, snow, true),
-		container.NewBorder(nil, nil, nil, browse, output),
 	)
 
 	var start *mainAction
@@ -124,10 +95,8 @@ func main() {
 				User: strings.TrimSpace(exitUser.Text),
 				Password: exitPass.Text,
 			},
-			Profile: strings.TrimSpace(profile.Text),
-			OutputDir: output.Text,
 		}
-		if err := opt.Validate(); err != nil { dialog.ShowError(err, w); return }
+		if err := opt.ValidateServers(); err != nil { dialog.ShowError(err, w); return }
 
 		dialog.NewConfirm("Начать настройку VPN?",
 			"Установщик изменит VPN, маршруты и firewall на обоих VPS. Нужны чистые Ubuntu 24.04 LTS с ядром 6.8. SSH-настройки не меняются. Продолжить?",
@@ -148,7 +117,7 @@ func main() {
 				resultState.Text = "Установка выполняется"
 				resultState.Color = purple
 				resultState.Refresh()
-				resultNote.SetText("Идёт настройка VPS. Конфигурация будет сохранена после успешных проверок.")
+				resultNote.SetText("Настраиваем оба VPS и управляемый AmneziaWG. Пользователи создаются в официальной Amnezia VPN.")
 				go func() {
 					installer := chain.Installer{
 						AskHostKey: func(address, fingerprint string) bool {
@@ -169,7 +138,7 @@ func main() {
 							})
 						},
 					}
-					file, err := installer.Run(context.Background(), opt)
+					result, err := installer.RunManaged(context.Background(), opt)
 					fyne.Do(func() {
 						start.SetBusy(false)
 						entryPass.SetText("")
@@ -184,7 +153,7 @@ func main() {
 							resultState.Text = "Требуется проверка"
 							resultState.Color = status.Color
 							resultState.Refresh()
-							resultNote.SetText("Файл не создан. На VPS могли остаться частичные изменения.")
+							resultNote.SetText("На VPS могли остаться частичные изменения. Перед повторной установкой проверь состояние серверов.")
 							addLog("Ошибка", err.Error())
 							dialog.ShowError(err, w)
 							return
@@ -210,7 +179,6 @@ func main() {
 		mainHeader,
 		serverCard("Входной сервер", "Принимает подключение от Keenetic", entryIP, entryPort, entryUser, entryPass),
 		serverCard("Выходной сервер", "Выпускает трафик в интернет", exitIP, exitPort, exitUser, exitPass),
-		fileCard,
 		start,
 		txt("Пароли используются только для SSH и не сохраняются программой.", 12, secondary, false),
 	)))
