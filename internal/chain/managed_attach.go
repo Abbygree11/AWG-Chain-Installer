@@ -22,6 +22,7 @@ func (a ManagedAttacher) Run(ctx context.Context, r *Remote) error {
 		{"Preflight", managedPreflight, 30*time.Second},
 		{"Docker и официальный образ", managedDockerSetup, 20*time.Minute},
 		{"Сервер AWG 3.1", managedConfigSetup, 3*time.Minute},
+		{"Ответный маршрут Amnezia UDP", managedReplyRoute, 90*time.Second},
 		{"PBR и защита от утечек", managedRoutingSetup, 2*time.Minute},
 		{"Проверка финского выхода", managedVerify, 2*time.Minute},
 	}
@@ -31,6 +32,16 @@ func (a ManagedAttacher) Run(ctx context.Context, r *Remote) error {
 		if err != nil { return fmt.Errorf("%s: %w", step.label, err) }
 		if a.Progress != nil { a.Progress(step.label, out) }
 	}
+	return nil
+}
+
+// RepairReplies fixes the asymmetric Docker published-port reply path in an
+// existing experiment without redeploying containers or touching AWG keys.
+func (a ManagedAttacher) RepairReplies(ctx context.Context, r *Remote) error {
+	if a.Progress != nil { a.Progress("Ответный маршрут Amnezia UDP", "Проверяем и исправляем") }
+	out, err := runWithTimeout(ctx, r, managedReplyRoute, 90*time.Second)
+	if err != nil { return fmt.Errorf("ответный маршрут Amnezia: %w", err) }
+	if a.Progress != nil { a.Progress("Ответный маршрут Amnezia UDP", out) }
 	return nil
 }
 
@@ -147,6 +158,57 @@ test "$ready" = true || { echo "AmneziaWG awg0 не запустился. Диа
 docker exec amnezia-awg2 test -s /opt/amnezia/awg/wireguard_server_public_key.key
 docker exec amnezia-awg2 test -s /opt/amnezia/awg/wireguard_psk.key
 echo "MANAGED_AWG_READY"`
+
+const managedReplyRoute = `# Official Amnezia Docker publishes :55424 to the SECOND network (amn0).
+# Its incoming packets reach 172.29.172.2 (eth1), whereas generic outbound
+# routing uses 172.28.66.2 (eth0) for data traffic sent through Finland.
+# Force only outer AWG UDP replies through eth1; leave all user/data traffic
+# through eth0 and the host's existing PBR+kill switch.
+test "$(id -u)" = 0 || { echo "Нужен root"; exit 1; }
+docker inspect -f '{{.State.Running}}' amnezia-awg2 | grep -qx true ||
+  { echo "amnezia-awg2 не запущен"; exit 1; }
+docker exec amnezia-awg2 sh -c "ip -4 addr show dev eth0 | grep -q '172.28.66.2/'" ||
+  { echo "У контейнера неожиданная сеть eth0, ничего не меняем"; exit 1; }
+docker exec amnezia-awg2 sh -c "ip -4 addr show dev eth1 | grep -q '172.29.172.2/'" ||
+  { echo "У контейнера неожиданная сеть eth1, ничего не меняем"; exit 1; }
+test -f /opt/amnezia/amnezia-awg2/start.sh ||
+  { echo "Отсутствует исходный start.sh; нельзя закрепить маршрут"; exit 1; }
+start=/opt/amnezia/amnezia-awg2/start.sh
+if ! grep -Fq 'AWG_CHAIN_UDP_REPLY_V1' "$start"; then
+  grep -qx 'tail -f /dev/null' "$start" ||
+    { echo "Формат start.sh изменился, автоматическая правка запрещена"; exit 1; }
+  temp=$(mktemp)
+  sed '/^tail -f \/dev\/null$/,$d' "$start" > "$temp"
+  cat >>"$temp" <<'INNER'
+# AWG_CHAIN_UDP_REPLY_V1: separate outer handshake from decrypted user traffic.
+ip -4 route replace default via 172.29.172.1 dev eth1 src 172.29.172.2 table 101
+if ip -4 rule show | grep -q '^90:'; then
+  ip -4 rule show | grep -Eq '^90:.*ipproto udp sport 55424.*lookup 101' ||
+    { echo 'ip rule priority 90 конфликтует с другой политикой' >&2; exit 1; }
+else
+  ip -4 rule add priority 90 ipproto udp sport 55424 lookup 101
+fi
+tail -f /dev/null
+INNER
+  cat "$temp" > "$start"
+  rm -f "$temp"
+fi
+# Update on-disk startup file for subsequent docker restart (not recreate).
+docker cp "$start" amnezia-awg2:/opt/amnezia/start.sh
+docker exec amnezia-awg2 chmod 755 /opt/amnezia/start.sh
+# Apply live without interrupting connected users or existing client peers.
+docker exec amnezia-awg2 ip -4 route replace default via 172.29.172.1 dev eth1 src 172.29.172.2 table 101
+if ! docker exec amnezia-awg2 ip -4 rule show | grep -Eq '^90:.*ipproto udp sport 55424.*lookup 101'; then
+  if docker exec amnezia-awg2 ip -4 rule show | grep -q '^90:'; then
+    echo "Внутри контейнера занят приоритет 90, не заменяем существующее правило" >&2
+    exit 1
+  fi
+  docker exec amnezia-awg2 ip -4 rule add priority 90 ipproto udp sport 55424 lookup 101
+fi
+docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000 |
+  grep -q 'dev eth1 src 172.29.172.2' ||
+  { echo "Ответный маршрут не подтверждён"; exit 1; }
+echo "AWG_UDP_REPLY_ROUTE_OK"`
 
 const managedRoutingSetup = `echo "Создаём постоянные PBR и kill-switch правила..."
 cat > /usr/local/sbin/awg-chain-managed-route <<'ROUTE'
