@@ -74,6 +74,67 @@ func main() {
 		),
 	)
 
+	// Curated alternative allocations avoid changing just one part of the
+	// multi-network chain and leaving NAT / Docker / AWG out of sync.
+	presets := chain.NetworkPresets()
+	const customName = "Свой набор подсетей…"
+	names := make([]string, 0, len(presets)+1)
+	byName := make(map[string]chain.NetworkPlan)
+	for _, preset := range presets {
+		names = append(names, preset.Name)
+		byName[preset.Name] = preset.Plan
+	}
+	names = append(names, customName)
+	selectNetworks := widget.NewSelect(names, nil)
+	networkDescription := widget.NewLabel("")
+	networkDescription.Wrapping = fyne.TextWrapWord
+	customClients := widget.NewEntry()
+	customHop := widget.NewEntry()
+	customDocker := widget.NewEntry()
+	customDNS := widget.NewEntry()
+	defaultNetworks := chain.DefaultNetworkPlan()
+	customClients.SetText(defaultNetworks.Clients)
+	customHop.SetText(defaultNetworks.Hop)
+	customDocker.SetText(defaultNetworks.Docker)
+	customDNS.SetText(defaultNetworks.DNS)
+	customNetworks := container.NewVBox(
+		labelledEntry("Клиентская AWG · /24", customClients),
+		labelledEntry("Межсерверная сеть · /30", customHop),
+		labelledEntry("Docker — выход через второй VPS · /24", customDocker),
+		labelledEntry("Docker — служебная сеть Amnezia · /24", customDNS),
+	)
+	customNetworks.Hide()
+	selectedNetworks := func() chain.NetworkPlan {
+		if selectNetworks.Selected == customName {
+			return chain.NetworkPlan{
+				Clients: strings.TrimSpace(customClients.Text),
+				Hop: strings.TrimSpace(customHop.Text),
+				Docker: strings.TrimSpace(customDocker.Text),
+				DNS: strings.TrimSpace(customDNS.Text),
+			}
+		}
+		if p, ok := byName[selectNetworks.Selected]; ok { return p }
+		return chain.DefaultNetworkPlan()
+	}
+	selectNetworks.OnChanged = func(name string) {
+		if name == customName {
+			customNetworks.Show()
+			networkDescription.SetText("Введи четыре частные, не пересекающиеся IPv4-сети. Клиенты, Docker и служебная сеть — /24, межсерверная — /30.")
+		} else {
+			customNetworks.Hide()
+			networkDescription.SetText(selectedNetworks().String())
+		}
+	}
+	selectNetworks.SetSelected(presets[0].Name)
+	networkCard := standardCard(
+		txt("Подсети VPN", 18, snow, true),
+		txt("Выбери готовый набор при конфликте с домашней LAN, существующим VPN или Docker. Все четыре подсети согласованы.", 13, secondary, false),
+		selectNetworks,
+		networkDescription,
+		customNetworks,
+		txt("Сети проверяются на обоих VPS до установки. Домашнюю сеть и сети других устройств проверь самостоятельно.", 12, secondary, false),
+	)
+
 	var start *mainAction
 	start = newMainAction(func() {
 		entryPortNumber, eerr := strconv.Atoi(strings.TrimSpace(entryPort.Text))
@@ -95,8 +156,10 @@ func main() {
 				User: strings.TrimSpace(exitUser.Text),
 				Password: exitPass.Text,
 			},
+			Networks: selectedNetworks(),
 		}
 		if err := opt.ValidateServers(); err != nil { dialog.ShowError(err, w); return }
+		if err := opt.Networks.Validate(); err != nil { dialog.ShowError(err, w); return }
 
 		dialog.NewConfirm("Начать настройку VPN?",
 			"На двух ЧИСТЫХ Ubuntu 24.04 установятся официальный Docker AmneziaWG и межсерверный AWG. Настроятся маршруты и firewall. Существующие установки не перезаписываются. SSH не изменяется. Продолжить?",
@@ -167,7 +230,7 @@ func main() {
 						resultState.Text = "Настройка завершена"
 						resultState.Color = mint
 						resultState.Refresh()
-						resultNote.SetText(fmt.Sprintf("Входной VPS: %s:%d/UDP\nВыходной IP: %s\n\nAmnezia VPN: Self-hosted → Пропустить установку → Управление → Проверить установленные сервисы. После обнаружения amnezia-awg2 создавай пользователей и экспортируй конфиги для Keenetic.", result.EntryIP, result.Port, result.ExitIP))
+						resultNote.SetText(fmt.Sprintf("Входной VPS: %s:%d/UDP\nIP выходного сервера: %s\nПодсети: %s\n\nAmnezia VPN: Self-hosted → Пропустить установку → Управление → Проверить установленные сервисы. После обнаружения amnezia-awg2 создавай пользователей и экспортируй конфиги для Keenetic.", result.EntryIP, result.Port, result.ExitIP, result.Networks.String()))
 						addLog("Готово", "amnezia-awg2 на "+result.EntryIP+"; внешний IP: "+result.ExitIP)
 						dialog.ShowInformation("Установка завершена", "Двухсерверная цепочка и Docker проверены. В Amnezia VPN открой сервер "+result.EntryIP+" по SSH и обнаружь установленный сервис amnezia-awg2.", w)
 					})
@@ -179,6 +242,7 @@ func main() {
 		mainHeader,
 		serverCard("Входной сервер", "Принимает подключения через официальную Amnezia VPN", entryIP, entryPort, entryUser, entryPass),
 		serverCard("Выходной сервер", "Выпускает трафик в интернет", exitIP, exitPort, exitUser, exitPass),
+		networkCard,
 		start,
 		txt("Пароли используются только для SSH и не сохраняются программой.", 12, secondary, false),
 	)))
@@ -217,7 +281,7 @@ func main() {
 		stepRow("4", "Поднимет управляемый контейнер amnezia-awg2"),
 		stepRow("5", "Настроит Docker, PBR, NAT и kill switch"),
 		stepRow("6", "Исправит UDP-ответы для любых клиентов"),
-		stepRow("7", "Проверит финский IP и автозапуск"),
+		stepRow("7", "Проверит IP выходного сервера и автозапуск"),
 		stepRow("8", "Подготовит управление через Amnezia VPN"),
 	)
 
@@ -267,7 +331,7 @@ func main() {
 			txt("После установки добавь сервер в официальную Amnezia VPN, найди сервис amnezia-awg2 и создавай подключения или конфиги Keenetic там.", 14, secondary, false),
 			txt("AmneziaWG 3.1 • Docker + нативный межсерверный AWG из GitHub", 14, secondary, false),
 			txt("Порты: UDP 55424 (вход), UDP 51820 (выход)", 14, secondary, false),
-			txt("Подсети: Docker 172.28.66.0/24, клиентская 10.8.1.0/24, hop 10.77.77.0/30", 14, secondary, false),
+			txt("Четыре подсети выбираются на экране установки: готовые альтернативы или собственные частные CIDR.", 14, secondary, false),
 			txt("Обновления или пересоздание контейнера через официальный клиент требуют повторной диагностики: Docker может изменить сетевые интерфейсы.", 14, secondary, false),
 			txt("Установщик не изменяет SSH-аутентификацию и не перезаписывает уже существующие VPN-профили.", 14, secondary, false),
 		),
@@ -276,7 +340,7 @@ func main() {
 	aboutPage := container.NewVScroll(pad(32,40,32,40,
 		standardCard(
 			container.NewHBox(imageIcon("about-logo",logoSVG,72),
-				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.2.0 • Go + Fyne",15,secondary,false))),
+				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.3.0 • Go + Fyne",15,secondary,false))),
 			widget.NewSeparator(),
 			txt("Автоматическая настройка двухузлового AmneziaWG 3.1",19,snow,true),
 			txt("Amnezia VPN / Keenetic → Docker на входном VPS → AWG/IPv6 → выходной VPS",14,secondary,false),
@@ -317,7 +381,7 @@ func main() {
 		settingsButton,
 		aboutButton,
 	)
-	bottom := container.NewVBox(txt("v0.2.0",13,secondary,false))
+	bottom := container.NewVBox(txt("v0.3.0",13,secondary,false))
 	navContent := pad(25,12,20,12,container.NewBorder(nil,bottom,nil,nil,navTop))
 	sidebar := container.NewStack(sidebarBackground(),navContent)
 	sidebarFixed := container.New(fixedColumn{width:250},sidebar)
