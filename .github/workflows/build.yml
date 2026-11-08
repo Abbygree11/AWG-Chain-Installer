@@ -77,12 +77,12 @@ jobs:
           retention-days: 14
 
   release:
-    # Release v0.3.0 atomically from the tested main-branch merge commit.
+    # Release v0.3.1 atomically from the tested main-branch merge commit.
     # This creates the Git tag and publishes the Windows/Linux/macOS assets.
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.ref == 'refs/heads/main' &&
-       startsWith(github.event.head_commit.message, 'release: v0.3.0'))
+       startsWith(github.event.head_commit.message, 'release: v0.3.1'))
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -95,7 +95,7 @@ jobs:
           path: dist
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.3.0' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.3.1' }}
           target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
