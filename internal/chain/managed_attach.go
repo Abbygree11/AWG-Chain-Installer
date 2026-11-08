@@ -205,10 +205,18 @@ if ! docker exec amnezia-awg2 ip -4 rule show | grep -Eq '^90:.*ipproto udp spor
   fi
   docker exec amnezia-awg2 ip -4 rule add priority 90 ipproto udp sport 55424 lookup 101
 fi
-docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000 |
-  grep -q 'dev eth1 src 172.29.172.2' ||
-  { echo "Ответный маршрут не подтверждён"; exit 1; }
-echo "AWG_UDP_REPLY_ROUTE_OK"`
+route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000)
+# iproute2 may insert "table 101" between "dev eth1" and "src ...".
+# Verify the fields independently, without relying on their adjacency.
+if ! printf '%s\n' "$route" | grep -Eq '(^|[[:space:]])dev eth1([[:space:]]|$)' ||
+   ! printf '%s\n' "$route" | grep -Eq '(^|[[:space:]])src 172[.]29[.]172[.]2([[:space:]]|$)'; then
+  echo "Ответный маршрут не подтверждён; фактический результат:" >&2
+  printf '%s\n' "$route" >&2
+  docker exec amnezia-awg2 ip -4 rule show >&2
+  docker exec amnezia-awg2 ip -4 route show table 101 >&2
+  exit 1
+fi
+echo "AWG_UDP_REPLY_ROUTE_OK: $route"`
 
 const managedRoutingSetup = `echo "Создаём постоянные PBR и kill-switch правила..."
 cat > /usr/local/sbin/awg-chain-managed-route <<'ROUTE'
