@@ -15,8 +15,8 @@ import (
 	"github.com/Abbygree11/AWG-Chain-Installer/internal/chain"
 )
 
-// A safe experimental path for future managed-service integration. Detecting
-// the server never starts, stops or overwrites native or Docker services.
+// Read-only diagnostic of installed managed and native services. Installation
+// is performed by the primary setup page, not by the diagnostic page.
 func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 	host:=widget.NewEntry()
 	host.SetPlaceHolder("Публичный IPv4 промежуточного VPS")
@@ -27,7 +27,7 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 	password:=widget.NewPasswordEntry()
 	password.SetPlaceHolder("SSH-пароль")
 	checkState:=txt("Не проверено",15,secondary,true)
-	results:=widget.NewLabel("Введите SSH-данные, чтобы определить установленный тип AmneziaWG.")
+	results:=widget.NewLabel("Введите SSH-данные для проверки установленных компонентов и таблиц маршрутизации.")
 	results.Wrapping=fyne.TextWrapWord
 
 	check:=widget.NewButtonWithIcon("Проверить установленные компоненты",theme.SearchIcon(),nil)
@@ -74,6 +74,7 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 				checkState.Refresh()
 				var lines []string
 				lines=append(lines,inv.Summary())
+				if inv.RoutingStatus != "" { lines=append(lines,"\nМаршрутизация:\n"+inv.RoutingStatus) }
 				for _,c:=range inv.Components {
 					state:="не запущен"
 					if c.Running{state="работает"}
@@ -84,7 +85,7 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 				if inv.Kind==chain.KindStandalone {
 					lines=append(lines,"\nНативный AWG не появится в официальном клиенте. Не пытайся установить поверх него контейнер без отдельной проверки портов и маршрутизации.")
 				}
-				if inv.Kind==chain.KindManaged {
+				if inv.Kind==chain.KindManaged || inv.Kind==chain.KindMixed {
 					lines=append(lines,"\nВ официальной Amnezia VPN: подключись к серверу по SSH → «Пропустить установку» → Управление → «Проверить сервер на ранее установленные сервисы».")
 				}
 				results.SetText(strings.Join(lines,"\n"))
@@ -98,7 +99,7 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 		container.NewHBox(imageIcon("managed-symbol",logoSVG,65),
 			container.NewVBox(
 				txt("Интеграция с Amnezia VPN",28,snow,true),
-				txt("Экспериментальный режим · сначала диагностика",14,secondary,false),
+				txt("Диагностика установленного сервера · только чтение",14,secondary,false),
 			)),
 		standardCard(
 			txt("Проверка промежуточного сервера",21,snow,true),
@@ -119,9 +120,9 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 			results,
 		),
 		standardCard(
-			txt("Как будет работать Managed-режим",21,snow,true),
-			txt("Официальный клиент Amnezia устанавливает Docker-контейнеры, а AWG Chain настраивает цепочку через отдельный выходной VPS.",14,secondary,false),
-			txt("Автоматическая установка контейнеров пока не включена: сначала нужно подтвердить совместимость на чистом тестовом VPS. Это защищает существующие соединения.",14,secondary,false),
+			txt("Как работает Amnezia-managed",21,snow,true),
+			txt("Установка на вкладке «Установка» поднимает amnezia-awg2 на входном VPS и awg-mediator → awg-destination для выхода через второй VPS.",14,secondary,false),
+			txt("Пользователи и конфигурации создаются через официальную Amnezia VPN. После обновления или пересоздания контейнера проверь Docker-сеть и PBR повторно: такие изменения пока не восстанавливаются автоматически.",14,secondary,false),
 			docs,
 		),
 	)))
