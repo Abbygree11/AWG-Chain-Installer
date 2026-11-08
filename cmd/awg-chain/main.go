@@ -340,7 +340,7 @@ func main() {
 	aboutPage := container.NewVScroll(pad(32,40,32,40,
 		standardCard(
 			container.NewHBox(imageIcon("about-logo",logoSVG,72),
-				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.3.0 • Go + Fyne",15,secondary,false))),
+				container.NewVBox(txt("AWG Chain Installer",28,snow,true),txt("Версия 0.3.1 • Go + Fyne",15,secondary,false))),
 			widget.NewSeparator(),
 			txt("Автоматическая настройка двухузлового AmneziaWG 3.1",19,snow,true),
 			txt("Amnezia VPN / Keenetic → Docker на входном VPS → AWG/IPv6 → выходной VPS",14,secondary,false),
@@ -381,7 +381,7 @@ func main() {
 		settingsButton,
 		aboutButton,
 	)
-	bottom := container.NewVBox(txt("v0.3.0",13,secondary,false))
+	bottom := container.NewVBox(txt("v0.3.1",13,secondary,false))
 	navContent := pad(25,12,20,12,container.NewBorder(nil,bottom,nil,nil,navTop))
 	sidebar := container.NewStack(sidebarBackground(),navContent)
 	sidebarFixed := container.New(fixedColumn{width:250},sidebar)
