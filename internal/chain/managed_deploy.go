@@ -209,7 +209,7 @@ route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424
 # iproute2 may insert "table 101" between "dev eth1" and "src ...".
 # Verify the fields independently, without relying on their adjacency.
 if ! printf '%s\n' "$route" | grep -Eq '(^|[[:space:]])dev eth1([[:space:]]|$)' ||
-   ! printf '%s\n' "$route" | grep -Eq '(^|[[:space:]])src 172[.]29[.]172[.]2([[:space:]]|$)'; then
+   ! printf '%s\n' "$route" | awk '{for(i=1;i<NF;i++) if($i=="src" && $(i+1)=="172.29.172.2")ok=1; exit !ok}'; then
   echo "Ответный маршрут не подтверждён; фактический результат:" >&2
   printf '%s\n' "$route" >&2
   docker exec amnezia-awg2 ip -4 rule show >&2
