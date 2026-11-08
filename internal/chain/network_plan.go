@@ -182,7 +182,7 @@ conflicts = [(str(a), str(b), where)
              for a in wanted for b, where in existing if a.overlaps(b)]
 if conflicts:
     for a, b, where in conflicts:
-        print('Конфликт подсетей: %s пересекается с %s (%s)' % (a, b, where),
+        print('Конфликт подсетей: %%s пересекается с %%s (%%s)' % (a, b, where),
               file=sys.stderr)
     sys.exit(1)
 print('NETWORK_PLAN_AVAILABLE')
