@@ -63,6 +63,7 @@ func TestRenderedManagedScriptsAndConfigsHaveOnlySelectedAddresses(t *testing.T)
 				{docker,p.ClientBase()},
 				{awg,"Address = "+p.ClientServer()+"/24"},
 				{reply,"default via "+p.DNSGateway()+" dev eth1 src "+p.DNSIP()+" table 101"},
+				{reply,"==\""+p.DNSIP()+"\""},
 				{routing,"src="+p.DockerIP()+"/32"},
 				{routing,"from "+p.DockerIP()+" iif awc0"},
 			} {
@@ -74,7 +75,7 @@ func TestRenderedManagedScriptsAndConfigsHaveOnlySelectedAddresses(t *testing.T)
 				for _, template := range []struct{content,old string}{
 					{server,original.HopEntry()}, {exit,original.DockerIP()},
 					{docker,original.ClientBase()}, {docker,original.DockerGateway()},
-					{awg,original.ClientServer()}, {reply,original.DNSGateway()},
+					{awg,original.ClientServer()}, {reply,original.DNSGateway()}, {reply,original.DNSIP()},
 					{routing,original.DockerIP()},
 				} {
 					if strings.Contains(template.content,template.old) {
