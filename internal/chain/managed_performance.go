@@ -62,14 +62,18 @@ else
   echo 'Ограничение MSS 1160: не обнаружено'
 fi
 echo '=== Время загрузки с выходного VPS (секунды) ==='
-echo 'DNS = разрешение имени, TCP = установление соединения, TLS = HTTPS, TTFB = первый байт.'
+echo 'Этапы (секунды): DNS, TCP, TLS, ответ сервера после TLS и общее время.'
 for address in https://example.com/ https://www.cloudflare.com/; do
   for attempt in 1 2; do
     printf '%s попытка %s: ' "$address" "$attempt"
-    if ! docker exec amnezia-awg2 curl -4 -sSL -o /dev/null \
+    if result=$(docker exec amnezia-awg2 curl -4 -sS -o /dev/null \
       --connect-timeout 7 --max-time 17 \
-      --write-out 'DNS=%{time_namelookup} TCP=%{time_connect} TLS=%{time_appconnect} TTFB=%{time_starttransfer} Итого=%{time_total} HTTP=%{http_code}\n' \
-      "$address"; then
+      --write-out '%{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{http_code}' \
+      "$address"); then
+      read -r dns tcp tls ttfb total http <<< "$result"
+      awk -v d="$dns" -v c="$tcp" -v a="$tls" -v b="$ttfb" -v t="$total" -v h="$http" \
+        'BEGIN {printf "DNS=%.3f TCP=%.3f TLS=%.3f ответ=%.3f всего=%.3f HTTP=%s\\n", d, c-d, a-c, b-a, t, h}'
+    else
       echo 'Запрос не удался: проверь доступность сайта/DNS.'
     fi
   done
@@ -121,7 +125,6 @@ PY
 # The service is Type=oneshot and already active; executing its idempotent
 # start routine updates iptables without tearing down any live connection.
 /usr/local/sbin/awg-chain-managed-route start
-. /dev/null
 network=awc0
 src=$(sed -n 's/^src=//p' "$route")
 test -n "$src"
