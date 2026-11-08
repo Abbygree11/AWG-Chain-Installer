@@ -93,6 +93,80 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 		}()
 	}
 
+	// Existing installations should never be reinstalled for tuning. The
+	// read-only benchmark and the optional MSS fix use only entry-VPS SSH.
+	perfState := txt("Замеры ещё не проводились", 15, secondary, true)
+	perfResult := widget.NewLabel("Проверка покажет время DNS, TCP, TLS и получения первого байта из контейнера. Показатели телефона могут отличаться.")
+	perfResult.Wrapping = fyne.TextWrapWord
+	readServer := func() (chain.Server, error) {
+		p, err := strconv.Atoi(strings.TrimSpace(port.Text))
+		if err != nil || p < 1 || p > 65535 {
+			return chain.Server{}, fmt.Errorf("Неверный SSH-порт")
+		}
+		server := chain.Server{Host:strings.TrimSpace(host.Text),Port:p,User:strings.TrimSpace(user.Text),Password:password.Text}
+		if server.Host == "" || server.Password == "" || server.User != "root" {
+			return chain.Server{}, fmt.Errorf("Укажи SSH-адрес, пользователя root и пароль")
+		}
+		return server, nil
+	}
+	askSSH := func(address, fingerprint string) bool {
+		accepted:=make(chan bool,1)
+		fyne.Do(func() {
+			dialog.NewConfirm("Проверка SSH-ключа",
+				fmt.Sprintf("Впервые подключаемся к %s\n\nSHA256:\n%s\n\nСверь отпечаток с консолью VPS у провайдера. Доверять ключу?",address,fingerprint),
+				func(ok bool){accepted<-ok},w).Show()
+		})
+		return <-accepted
+	}
+	var measure, optimize *widget.Button
+	perform := func(repair bool) {
+		server, err := readServer()
+		if err != nil { dialog.ShowError(err,w); return }
+		measure.Disable()
+		optimize.Disable()
+		if repair {
+			perfState.Text="Применяем MSS-правила…"
+			perfResult.SetText("Проверяем текущую маршрутизацию и обновляем только TCP MSS в firewall.")
+		} else {
+			perfState.Text="Измеряем DNS, TCP и TLS…"
+			perfResult.SetText("Замеры выполняются на входном VPS через выходной сервер. Существующий VPN не изменяется.")
+		}
+		perfState.Color=purple
+		perfState.Refresh()
+		go func() {
+			var output string
+			var err error
+			if repair {
+				output,err=chain.OptimizeManagedTCP(context.Background(),server,askSSH)
+			} else {
+				output,err=chain.DiagnoseManagedPerformance(context.Background(),server,askSSH)
+			}
+			fyne.Do(func(){
+				measure.Enable()
+				optimize.Enable()
+				password.SetText("")
+				if err!=nil {
+					perfState.Text="Не удалось завершить проверку"
+					perfState.Color=purple
+					perfResult.SetText(err.Error())
+				} else {
+					perfState.Text="MSS-оптимизация применена"
+					if !repair { perfState.Text="Замеры завершены" }
+					perfState.Color=mint
+					perfResult.SetText(output)
+				}
+				perfState.Refresh()
+			})
+		}()
+	}
+	measure=widget.NewButtonWithIcon("Замерить открытие сайтов", theme.SearchIcon(), func(){perform(false)})
+	measure.Importance=widget.HighImportance
+	optimize=widget.NewButton("Настроить TCP MSS для двух туннелей",func(){
+		dialog.NewConfirm("Оптимизация TCP на входном VPS",
+			"Будет добавлено постоянное ограничение MSS=1160 для новых TCP-соединений внутри VPN-цепочки (в обоих направлениях). Не меняет DNS, ключи или пользователей и не перезапускает VPN. Может помочь при проблемах MTU, но не ускоряет медленный DNS. Продолжить?",
+			func(ok bool){if ok{perform(true)}},w).Show()
+	})
+
 	docs:=widget.NewHyperlink("Официальная инструкция: как найти установленные сервисы",nil)
 	docs.SetURLFromString("https://docs.amnezia.org/ru/documentation/instructions/check-server/")
 	pane:=container.NewVScroll(pad(30,35,35,35,container.NewVBox(
@@ -118,6 +192,15 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 			txt("Результат диагностики",21,snow,true),
 			checkState,
 			results,
+		),
+		standardCard(
+			txt("Скорость первого открытия сайта",21,snow,true),
+			txt("Два вложенных VPN-туннеля имеют MTU 1280 и 1200. Если первые HTTPS-запросы зависают из-за MTU, TCP MSS=1160 может помочь. Для медленного DNS предусмотрены отдельные замеры.",14,secondary,false),
+			measure,
+			optimize,
+			perfState,
+			perfResult,
+			txt("Измерение выполняется на сервере, не на телефоне. Сначала сравни результаты до и после применения, не меняй вручную параметры AWG 3.1.",12,secondary,false),
 		),
 		standardCard(
 			txt("Как работает Amnezia-managed",21,snow,true),
