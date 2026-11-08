@@ -35,6 +35,7 @@ type Options struct {
 	Exit       Server
 	Profile    string
 	OutputDir  string
+	Networks   NetworkPlan // managed-only; zero value selects the original plan
 }
 
 var safeUser = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
