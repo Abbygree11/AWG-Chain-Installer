@@ -229,6 +229,13 @@ mark=0x6601
 chain=AWG_CHAIN_MNG
 case "$1" in
 start)
+  # AWG_CHAIN_TCP_MSS_V1: two nested tunnels have different MTUs.
+  # awg-mediator MTU=1200 -> IPv4 TCP MSS<=1160 in BOTH directions.
+  # Constrain new TCP handshakes only. No VPN restart or peer changes.
+  iptables -t mangle -C FORWARD -i "$network" -s "$src" -o awg-mediator -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160 2>/dev/null ||
+    iptables -t mangle -I FORWARD 1 -i "$network" -s "$src" -o awg-mediator -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160
+  iptables -t mangle -C FORWARD -i awg-mediator -o "$network" -d "$src" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160 2>/dev/null ||
+    iptables -t mangle -I FORWARD 1 -i awg-mediator -o "$network" -d "$src" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160
   ip -4 route replace unreachable default table 100 metric 10000
   iptables -t mangle -N "$chain" 2>/dev/null || true
   iptables -t mangle -F "$chain"
@@ -256,6 +263,8 @@ start)
     iptables -I DOCKER-USER 1 -i awg-mediator -o "$network" -d "$src" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   ;;
 stop)
+  iptables -t mangle -D FORWARD -i "$network" -s "$src" -o awg-mediator -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160 2>/dev/null || true
+  iptables -t mangle -D FORWARD -i awg-mediator -o "$network" -d "$src" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160 2>/dev/null || true
   iptables -t mangle -D PREROUTING -i "$network" -s "$src" -j "$chain" 2>/dev/null || true
   iptables -t mangle -F "$chain" 2>/dev/null || true
   iptables -t mangle -X "$chain" 2>/dev/null || true
