@@ -159,11 +159,24 @@ func runWithTimeout(parent context.Context, r *Remote, script string, max time.D
 }
 
 func inspect(ctx context.Context, r *Remote, udpPort int, ownedConfigs ...string) (serverInfo, error) {
+	return inspectWithPolicy(ctx, r, udpPort, true, ownedConfigs...)
+}
+
+// Managed preflight checks chosen ranges on both VPS independently, and
+// does not reject free alternatives just because legacy defaults are in use.
+func inspectManaged(ctx context.Context, r *Remote, udpPort int, ownedConfigs ...string) (serverInfo, error) {
+	return inspectWithPolicy(ctx, r, udpPort, false, ownedConfigs...)
+}
+func inspectWithPolicy(ctx context.Context, r *Remote, udpPort int, checkLegacy bool, ownedConfigs ...string) (serverInfo, error) {
 	// Keep the initial release conservative: never replace existing AWG services,
 	// non-default firewall policies, or unrelated PBR rules.
 	var checks strings.Builder
 	for _, name := range ownedConfigs {
 		checks.WriteString("test ! -e /etc/amnezia/amneziawg/" + name + " || { echo 'Уже существует профиль " + name + "'; exit 1; }\n")
+	}
+	legacyCheck := ""
+	if checkLegacy {
+		legacyCheck = "if ip -4 route show | grep -Eq '10\\.(77\\.77|86\\.66)\\.'; then echo 'Конфликт VPN-подсетей'; exit 1; fi"
 	}
 	script := fmt.Sprintf(`
 . /etc/os-release
@@ -182,13 +195,13 @@ if command -v ip6tables >/dev/null; then
 fi
 if ip -4 rule show | grep -Eq '^1000:|lookup 100$'; then echo "Конфликт PBR"; exit 1; fi
 if ip -4 route show table 100 | grep -q .; then echo "Таблица 100 уже используется"; exit 1; fi
-if ip -4 route show | grep -Eq '10\.(77\.77|86\.66)\.'; then echo "Конфликт VPN-подсетей"; exit 1; fi
+%s
 if ss -H -lun | grep -Eq ':%d[[:space:]]'; then echo "UDP-порт %d занят"; exit 1; fi
 v6=$(ip -6 route get 2606:4700:4700::1111 | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n 1)
 egress=$(ip -4 route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p' | awk '{print $1}' | head -n 1)
 test -n "$v6" && test -n "$egress" || { echo "Не обнаружены публичный IPv6 или IPv4-интерфейс"; exit 1; }
 printf 'IPv6=%%s\nEGRESS=%%s\n' "$v6" "$egress"
-`, checks.String(), udpPort, udpPort)
+`, checks.String(), legacyCheck, udpPort, udpPort)
 	out, err := runWithTimeout(ctx, r, script, 45*time.Second)
 	if err != nil { return serverInfo{}, err }
 	info := serverInfo{}
