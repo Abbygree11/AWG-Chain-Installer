@@ -75,7 +75,8 @@ func (p NetworkPlan) Validate() error {
 	nets := make([]netip.Prefix, len(entries))
 	for i, e := range entries {
 		n, err := netip.ParsePrefix(strings.TrimSpace(e.cidr))
-		if err != nil || !n.Addr().Is4() || n.Bits() != e.bits ||
+		if err != nil || e.cidr != strings.TrimSpace(e.cidr) ||
+			!n.Addr().Is4() || n.Bits() != e.bits ||
 			n != n.Masked() || !n.Addr().IsPrivate() {
 			return fmt.Errorf("%s: укажи корректную частную IPv4-подсеть /%d, начиная с адреса сети (получено %q)", e.name, e.bits, e.cidr)
 		}
