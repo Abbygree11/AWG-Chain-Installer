@@ -115,18 +115,57 @@ if docker network inspect awg-chain-managed >/dev/null 2>&1 &&
 else
   echo 'Docker-сеть awg-chain-managed: не обнаружена — требуется проверка после обновления'
 fi
-if docker exec amnezia-awg2 ip -4 rule show 2>/dev/null | grep -Eq '^90:.*sport 55424.*lookup 101' &&
-   docker exec amnezia-awg2 ip -4 route show table 101 2>/dev/null | grep -q 'via 172.29.172.1'; then
-  echo 'Ответные UDP-пакеты: таблица 101 настроена'
-else
-  echo 'Ответные UDP-пакеты: таблица 101 не подтверждена'
+# Read container addresses from named networks: works for custom subnet plans.
+data_ip=$(docker inspect -f '{{with index .NetworkSettings.Networks "awg-chain-managed"}}{{.IPAddress}}{{end}}' amnezia-awg2 2>/dev/null || true)
+reply_ip=$(docker inspect -f '{{with index .NetworkSettings.Networks "amnezia-dns-net"}}{{.IPAddress}}{{end}}' amnezia-awg2 2>/dev/null || true)
+addr_if() {
+  docker exec amnezia-awg2 ip -4 -o addr show 2>/dev/null |
+    awk -v addr="$1" '{split($4, parts, "/"); if (parts[1]==addr) {print $2; exit}}'
+}
+uses_dev() {
+  printf '%s\n' "$1" | awk -v want="$2" '{for(i=1;i<NF;i++) if($i=="dev" && $(i+1)==want)ok=1; exit !ok}'
+}
+data_if=
+reply_if=
+if [ -n "$data_ip" ] && [ -n "$reply_ip" ]; then
+  data_if=$(addr_if "$data_ip")
+  reply_if=$(addr_if "$reply_ip")
 fi
-if ip -4 route show table 100 | grep -q 'dev awg-mediator' &&
-   ip -4 rule show | grep -q 'fwmark 0x6601 lookup 100' &&
-   systemctl is-active --quiet awg-chain-managed-route.service; then
-  echo 'Финская цепочка: PBR и service активны'
+local_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 2>/dev/null || true)
+client_ip=$(docker exec amnezia-awg2 ip -4 -o addr show dev awg0 2>/dev/null |
+  awk '{split($4, net, "/"); split(net[1], a, "."); if (length(a)==4) {print a[1]"."a[2]"."a[3]".2"; exit}}')
+client_route=
+if [ -n "$client_ip" ]; then
+  client_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 from "$client_ip" iif awg0 2>/dev/null || true)
+fi
+reply_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000 2>/dev/null || true)
+if [ -n "$data_if" ] && [ -n "$reply_if" ] && [ "$data_if" != "$reply_if" ] &&
+   uses_dev "$local_route" "$data_if" && uses_dev "$client_route" "$data_if"; then
+  echo 'Маршрут Docker и клиентского трафика: через выделенную egress-сеть'
 else
-  echo 'Финская цепочка: маршрутизация не подтверждена'
+  echo 'Маршрут Docker или клиента: неправильный либо не подтверждён (возможен прямой выход!)'
+fi
+if [ -n "$reply_if" ] && uses_dev "$reply_route" "$reply_if" &&
+   docker exec amnezia-awg2 ip -4 rule show 2>/dev/null | grep -Eq '^90:.*sport 55424.*lookup 101'; then
+  echo 'Ответные UDP-пакеты: через служебную Docker-сеть'
+else
+  echo 'Ответные UDP-пакеты: маршрут не подтверждён'
+fi
+if test -f /opt/amnezia/amnezia-awg2/start.sh &&
+   grep -Fq 'AWG_CHAIN_DYNAMIC_IFACES_V1' /opt/amnezia/amnezia-awg2/start.sh; then
+  echo 'Автозапуск: динамическое определение Docker-интерфейсов включено'
+else
+  echo 'Автозапуск: динамическая маршрутизация не обнаружена; после рестарта возможен обход Финляндии'
+fi
+if [ -n "$data_ip" ] &&
+   ip -4 route show table 100 | grep -q 'dev awg-mediator' &&
+   ip -4 rule show | grep -q 'fwmark 0x6601 lookup 100' &&
+   iptables -t mangle -C PREROUTING -i awc0 -s "$data_ip/32" -j AWG_CHAIN_MNG 2>/dev/null &&
+   iptables -C DOCKER-USER -i awc0 -s "$data_ip/32" ! -o awg-mediator -j REJECT 2>/dev/null &&
+   systemctl is-active --quiet awg-chain-managed-route.service; then
+  echo 'PBR и защитные правила: присутствуют (не заменяет тест с реальным клиентом)'
+else
+  echo 'PBR или защитные правила: не подтверждены'
 fi`
 		out, err := runWithTimeout(ctx, remote, check, 20*time.Second)
 		if err == nil { inv.RoutingStatus = strings.TrimSpace(out) }
