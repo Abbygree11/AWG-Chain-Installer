@@ -69,8 +69,15 @@ func makeManagedPage(w fyne.Window) fyne.CanvasObject {
 					results.SetText(err.Error())
 					return
 				}
-				checkState.Text="Обнаружение завершено"
-				checkState.Color=mint
+				if strings.Contains(inv.RoutingStatus,"не подтвержд") ||
+					strings.Contains(inv.RoutingStatus,"возможен прямой выход") ||
+					strings.Contains(inv.RoutingStatus,"не обнаружена") {
+					checkState.Text="Обнаружены проблемы маршрутизации"
+					checkState.Color=purple
+				} else {
+					checkState.Text="Обнаружение завершено"
+					checkState.Color=mint
+				}
 				checkState.Refresh()
 				var lines []string
 				lines=append(lines,inv.Summary())
