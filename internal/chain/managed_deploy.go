@@ -328,7 +328,11 @@ uses_dev() {
   printf '%s\n' "$1" | awk -v want="$2" '{for(i=1;i<NF;i++) if($i=="dev" && $(i+1)==want)ok=1; exit !ok}'
 }
 local_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1)
-client_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 from 10.8.1.2 iif awg0)
+# Derive a synthetic client address from awg0, including custom /24 plans.
+client_ip=$(docker exec amnezia-awg2 ip -4 -o addr show dev awg0 |
+  awk '{split($4, net, "/"); split(net[1], a, "."); if (length(a)==4) {print a[1]"."a[2]"."a[3]".2"; exit}}')
+test -n "$client_ip"
+client_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 from "$client_ip" iif awg0)
 reply_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000)
 uses_dev "$local_route" "$data_if" && uses_dev "$client_route" "$data_if" ||
   { echo "Трафик Docker/клиента выходит через неправильный интерфейс" >&2; exit 1; }
