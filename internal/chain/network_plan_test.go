@@ -65,7 +65,7 @@ func TestRenderedManagedScriptsAndConfigsHaveOnlySelectedAddresses(t *testing.T)
 				{docker,"$4==\""+p.DNSIP()+"/24\""},
 				{awg,"Address = "+p.ClientServer()+"/24"},
 				{reply,"default via "+p.DNSGateway()+" dev \"$reply_if\" src "+p.DNSIP()+" table 101"},
-				{reply,"==\""+p.DNSIP()+"\""},
+				{reply,"$4==\""+p.DNSIP()+"/24\""},
 				{routing,"src="+p.DockerIP()+"/32"},
 				{routing,"from "+p.DockerIP()+" iif awc0"},
 			} {
