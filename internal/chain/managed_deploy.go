@@ -83,8 +83,19 @@ base=https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/$commit/client
 curl -4 -fLSs --retry 2 --connect-timeout 15 --max-time 90 "$base/Dockerfile" -o Dockerfile
 curl -4 -fLSs --retry 2 --connect-timeout 15 --max-time 90 "$base/start.sh" -o start.sh
 sed -i 's/\$AWG_SUBNET_IP/10.8.1.0/g; s/\$WIREGUARD_SUBNET_CIDR/24/g' start.sh
-# A second Docker network must never become the default egress interface.
-sed -i '2a ip -4 route replace default via 172.28.66.1 dev eth0' start.sh
+# Docker may reorder eth0 and eth1 on container restart: resolve by assigned IP.
+cat > /tmp/awg-chain-route-bootstrap <<'BOOTSTRAP'
+# AWG_CHAIN_DYNAMIC_IFACES_V1: select egress/service links by IP, not ethX.
+data_if=$(ip -4 -o addr show | awk '$4=="172.28.66.2/24" {print $2; exit}')
+reply_if=$(ip -4 -o addr show | awk '$4=="172.29.172.2/24" {print $2; exit}')
+if [ -z "$data_if" ] || [ -z "$reply_if" ] || [ "$data_if" = "$reply_if" ]; then
+  echo "AWG Chain: Docker egress/service interfaces missing; refusing unsafe route" >&2
+  exit 1
+fi
+ip -4 route replace default via 172.28.66.1 dev "$data_if"
+BOOTSTRAP
+sed -i '2r /tmp/awg-chain-route-bootstrap' start.sh
+rm /tmp/awg-chain-route-bootstrap
 chmod 700 start.sh
 echo "Собираем официальный AmneziaWG Docker-образ..."
 docker build --pull -t amnezia-awg2 .
@@ -159,29 +170,31 @@ docker exec amnezia-awg2 test -s /opt/amnezia/awg/wireguard_server_public_key.ke
 docker exec amnezia-awg2 test -s /opt/amnezia/awg/wireguard_psk.key
 echo "MANAGED_AWG_READY"`
 
-const managedReplyRoute = `# Official Amnezia Docker publishes :55424 to the SECOND network (amn0).
-# Its incoming packets reach 172.29.172.2 (eth1), whereas generic outbound
-# routing uses 172.28.66.2 (eth0) for data traffic sent through Finland.
-# Force only outer AWG UDP replies through eth1; leave all user/data traffic
-# through eth0 and the host's existing PBR+kill switch.
+const managedReplyRoute = `# Official Amnezia publishes :55424 on the service/DNS bridge.
+# Return only outer VPN UDP replies through it; user data uses egress/PBR.
 test "$(id -u)" = 0 || { echo "Нужен root"; exit 1; }
 docker inspect -f '{{.State.Running}}' amnezia-awg2 | grep -qx true ||
   { echo "amnezia-awg2 не запущен"; exit 1; }
-docker exec amnezia-awg2 sh -c "ip -4 addr show dev eth0 | grep -q '172.28.66.2/'" ||
-  { echo "У контейнера неожиданная сеть eth0, ничего не меняем"; exit 1; }
-docker exec amnezia-awg2 sh -c "ip -4 addr show dev eth1 | grep -q '172.29.172.2/'" ||
-  { echo "У контейнера неожиданная сеть eth1, ничего не меняем"; exit 1; }
+data_if=$(docker exec amnezia-awg2 ip -4 -o addr show | awk '$4=="172.28.66.2/24" {print $2; exit}')
+reply_if=$(docker exec amnezia-awg2 ip -4 -o addr show | awk '$4=="172.29.172.2/24" {print $2; exit}')
+test -n "$data_if" && test -n "$reply_if" && test "$data_if" != "$reply_if" ||
+  { echo "Не удалось найти оба Docker-интерфейса по IP; ничего не меняем" >&2; exit 1; }
 test -f /opt/amnezia/amnezia-awg2/start.sh ||
   { echo "Отсутствует исходный start.sh; нельзя закрепить маршрут"; exit 1; }
 start=/opt/amnezia/amnezia-awg2/start.sh
-if ! grep -Fq 'AWG_CHAIN_UDP_REPLY_V1' "$start"; then
+grep -Fq 'AWG_CHAIN_DYNAMIC_IFACES_V1' "$start" ||
+  { echo "В start.sh нет динамического определения интерфейсов" >&2; exit 1; }
+if grep -Fq 'AWG_CHAIN_UDP_REPLY_V1' "$start"; then
+  grep -Fq 'dev "$reply_if" src 172.29.172.2 table 101' "$start" ||
+    { echo "Найдена старая привязка UDP к ethX; автоматическая перезапись запрещена" >&2; exit 1; }
+else
   grep -qx 'tail -f /dev/null' "$start" ||
     { echo "Формат start.sh изменился, автоматическая правка запрещена"; exit 1; }
   temp=$(mktemp)
   sed '/^tail -f \/dev\/null$/,$d' "$start" > "$temp"
   cat >>"$temp" <<'INNER'
 # AWG_CHAIN_UDP_REPLY_V1: separate outer handshake from decrypted user traffic.
-ip -4 route replace default via 172.29.172.1 dev eth1 src 172.29.172.2 table 101
+ip -4 route replace default via 172.29.172.1 dev "$reply_if" src 172.29.172.2 table 101
 if ip -4 rule show | grep -q '^90:'; then
   ip -4 rule show | grep -Eq '^90:.*ipproto udp sport 55424.*lookup 101' ||
     { echo 'ip rule priority 90 конфликтует с другой политикой' >&2; exit 1; }
@@ -196,8 +209,14 @@ fi
 # Update on-disk startup file for subsequent docker restart (not recreate).
 docker cp "$start" amnezia-awg2:/opt/amnezia/start.sh
 docker exec amnezia-awg2 chmod 755 /opt/amnezia/start.sh
-# Apply live without interrupting connected users or existing client peers.
-docker exec amnezia-awg2 ip -4 route replace default via 172.29.172.1 dev eth1 src 172.29.172.2 table 101
+# Do not silently alter a live client data route during a UDP-only repair.
+data_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1)
+printf '%s\n' "$data_route" | awk -v want="$data_if" '{
+  for (i=1; i<NF; i++) if ($i=="dev" && $(i+1)==want) ok=1
+  exit !ok
+}' || { echo "Основной маршрут Docker не ведёт через $data_if: $data_route" >&2; exit 1; }
+# Apply only the UDP-reply table live.
+docker exec amnezia-awg2 ip -4 route replace default via 172.29.172.1 dev "$reply_if" src 172.29.172.2 table 101
 if ! docker exec amnezia-awg2 ip -4 rule show | grep -Eq '^90:.*ipproto udp sport 55424.*lookup 101'; then
   if docker exec amnezia-awg2 ip -4 rule show | grep -q '^90:'; then
     echo "Внутри контейнера занят приоритет 90, не заменяем существующее правило" >&2
@@ -206,9 +225,11 @@ if ! docker exec amnezia-awg2 ip -4 rule show | grep -Eq '^90:.*ipproto udp spor
   docker exec amnezia-awg2 ip -4 rule add priority 90 ipproto udp sport 55424 lookup 101
 fi
 route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000)
-# iproute2 may insert "table 101" between "dev eth1" and "src ...".
-# Verify the fields independently, without relying on their adjacency.
-if ! printf '%s\n' "$route" | grep -Eq '(^|[[:space:]])dev eth1([[:space:]]|$)' ||
+# Verify interface and source separately; iproute2 may reorder fields.
+if ! printf '%s\n' "$route" | awk -v want="$reply_if" '{
+     for(i=1;i<NF;i++) if($i=="dev" && $(i+1)==want) ok=1
+     exit !ok
+   }' ||
    ! printf '%s\n' "$route" | awk '{for(i=1;i<NF;i++) if($i=="src" && $(i+1)=="172.29.172.2")ok=1; exit !ok}'; then
   echo "Ответный маршрут не подтверждён; фактический результат:" >&2
   printf '%s\n' "$route" >&2
@@ -298,12 +319,35 @@ systemctl enable --now awg-chain-managed-route.service
 ip -4 route get 1.1.1.1 from 172.28.66.2 iif awc0 mark 0x6601 | grep -q 'dev awg-mediator'
 echo "ROUTING_READY"`
 
-const managedVerify = `echo "Проверяем выход через Финляндию..."
+const managedVerify = `set -eu
+echo "Проверяем разделение маршрутов Docker и выход через Финляндию..."
+data_if=$(docker exec amnezia-awg2 ip -4 -o addr show | awk '$4=="172.28.66.2/24" {print $2; exit}')
+reply_if=$(docker exec amnezia-awg2 ip -4 -o addr show | awk '$4=="172.29.172.2/24" {print $2; exit}')
+test -n "$data_if" && test -n "$reply_if" && test "$data_if" != "$reply_if"
+uses_dev() {
+  printf '%s\n' "$1" | awk -v want="$2" '{for(i=1;i<NF;i++) if($i=="dev" && $(i+1)==want)ok=1; exit !ok}'
+}
+local_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1)
+# Derive a synthetic client address from awg0, including custom /24 plans.
+client_ip=$(docker exec amnezia-awg2 ip -4 -o addr show dev awg0 |
+  awk '{split($4, net, "/"); split(net[1], a, "."); if (length(a)==4) {print a[1]"."a[2]"."a[3]".2"; exit}}')
+test -n "$client_ip"
+client_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 from "$client_ip" iif awg0)
+reply_route=$(docker exec amnezia-awg2 ip -4 route get 1.1.1.1 ipproto udp sport 55424 dport 50000)
+uses_dev "$local_route" "$data_if" && uses_dev "$client_route" "$data_if" ||
+  { echo "Трафик Docker/клиента выходит через неправильный интерфейс" >&2; exit 1; }
+uses_dev "$reply_route" "$reply_if" ||
+  { echo "Ответный UDP-маршрут уходит не в служебную сеть" >&2; exit 1; }
+docker exec amnezia-awg2 ip -4 rule show | grep -Eq '^90:.*ipproto udp sport 55424.*lookup 101'
+ip -4 route get 1.1.1.1 from 172.28.66.2 iif awc0 mark 0x6601 | grep -q 'dev awg-mediator'
+iptables -t mangle -C PREROUTING -i awc0 -s 172.28.66.2/32 -j AWG_CHAIN_MNG
+iptables -C DOCKER-USER -i awc0 -s 172.28.66.2/32 ! -o awg-mediator -j REJECT
 expected=$(curl -4 -fsS --retry 2 --connect-timeout 10 --max-time 30 --interface 'if!awg-mediator' https://api.ipify.org)
 actual=$(docker exec amnezia-awg2 curl -4 -fsS --retry 2 --connect-timeout 10 --max-time 30 https://api.ipify.org)
 test -n "$expected" && test -n "$actual"
 printf 'Exit via mediator: %s\nExit via managed Docker: %s\n' "$expected" "$actual"
-test "$expected" = "$actual" || { echo "Managed Docker выходит не через Финляндию. PBR не подтверждён!"; exit 1; }
+test "$expected" = "$actual" || { echo "Managed Docker выходит не через Финляндию. PBR не подтверждён!" >&2; exit 1; }
+echo "ROUTES_OK: data=$data_if reply=$reply_if"
 docker ps --format '{{.Names}} {{.Ports}}' | grep 'amnezia-awg2'
 systemctl is-active --quiet awg-chain-managed-route.service
 echo "MANAGED_CHAIN_OK"`
